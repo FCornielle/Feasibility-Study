@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from ..config import store
+from ..config import APP_ROOT, store
 from ..models import RunRequest
 
 # TERMINAL importado desde el módulo compartido jobstore (config ya puso APP_ROOT en el path).
@@ -32,6 +34,19 @@ def get_run(run_id: str):
     if job is None:
         raise HTTPException(404, "run no encontrado")
     return job
+
+
+@router.get("/runs/{run_id}/result")
+def get_result(run_id: str):
+    """Devuelve el JSON completo del estudio (results/<run_id>/<study>.json)."""
+    job = store.get(run_id)
+    if job is None or not job.get("result_file"):
+        raise HTTPException(404, "resultado no disponible")
+    path = os.path.join(APP_ROOT, job["result_file"])
+    if not os.path.exists(path):
+        raise HTTPException(404, "archivo de resultado no encontrado")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 @router.websocket("/ws/runs/{run_id}")
