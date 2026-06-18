@@ -143,8 +143,9 @@ def _evacuation_lines(app, sub):
 
 # --------------------------------------------------------------------------- estudio
 def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
-        bess_mode: str = "discharge", run_id: str | None = None) -> dict:
+        bess_mode: str = "discharge", run_id: str | None = None, progress=None) -> dict:
     run_id = run_id or time.strftime("%Y%m%d_%H%M%S")
+    report = progress or (lambda phase, pct: None)
     data = {"study": "steady_state", "run_id": run_id, "substation": sub_name,
             "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode}}
 
@@ -152,6 +153,7 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         sub = pv_bess.find_substation(app, sub_name)
 
         # 1) Caso base (sin planta) — necesario antes de elegir el PCC energizado
+        report("flujo de carga base", 10)
         if _run_ldf(app) != 0:
             raise RuntimeError("El flujo de carga base no convergió.")
         data["base"] = _capture(app)
@@ -161,18 +163,22 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         data["pcc"] = {"name": pcc.loc_name, "kv": round(pcc.GetAttribute("uknom"), 1)}
 
         # 2) Con planta PV+BESS
+        report("modelando PV+BESS y flujo con planta", 35)
         plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
         if _run_ldf(app) != 0:
             raise RuntimeError("El flujo de carga con planta no convergió.")
         data["with_plant"] = _capture(app)
 
         # 3) Cortocircuito en el PCC (con planta)
+        report("cortocircuito en el PCC", 55)
         data["short_circuit_with_plant"] = _short_circuit(app, plant["pcc"])
 
         # 4) N-1 sobre líneas de evacuación (con planta)
+        report("análisis N-1", 70)
         evac = _evacuation_lines(app, sub)
         data["evacuation_lines"] = [l.loc_name for l in evac]
         data["n1_with_plant"] = _n1(app, plant["pcc"], evac)
+        report("evaluando criterios", 90)
 
     # --- veredicto por DELTA: la planta no debe INTRODUCIR ni EMPEORAR violaciones (criterio Sajoma) ---
     base, wp = data["base"], data["with_plant"]
