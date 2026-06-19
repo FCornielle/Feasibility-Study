@@ -2,7 +2,8 @@
 import { useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import SteadyState from "@/components/SteadyState";
-import { TABS } from "@/lib/tabs";
+import DynamicStudy from "@/components/DynamicStudy";
+import { DYNAMIC_TABS, TABS } from "@/lib/tabs";
 
 export default function Page() {
   const [tab, setTab] = useState("steady");
@@ -23,6 +24,8 @@ export default function Page() {
         <div className="scroll">
           {tab === "steady" ? (
             <SteadyState />
+          ) : DYNAMIC_TABS.includes(tab) ? (
+            <DynamicStudy study={tab} key={tab} />
           ) : (
             <div className="stub-msg">🚧 {current.label} — en construcción.</div>
           )}

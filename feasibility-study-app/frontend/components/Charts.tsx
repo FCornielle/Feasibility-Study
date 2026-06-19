@@ -39,6 +39,31 @@ export function VoltageChart({ base, plant }: { base: Bus[]; plant: Bus[] }) {
   );
 }
 
+interface Series { x_label: string; x: number[]; traces: { name: string; y: number[] }[]; }
+const PALETTE = ["#2e86ff", "#2ecc71", "#f1c40f", "#e74c3c"];
+
+export function SeriesChart({ series }: { series: Series }) {
+  return (
+    <Plot
+      data={series.traces.map((tr, i) => ({
+        x: series.x, y: tr.y, type: "scattergl", mode: "lines", name: tr.name,
+        line: { color: PALETTE[i % PALETTE.length], width: 1.6 },
+        yaxis: i === 0 ? "y" : "y2",
+      }))}
+      layout={{
+        ...DARK, height: 340,
+        legend: { orientation: "h", y: 1.15 },
+        xaxis: { title: series.x_label },
+        yaxis: { title: series.traces[0]?.name ?? "" },
+        yaxis2: series.traces.length > 1
+          ? { title: series.traces[1].name, overlaying: "y", side: "right" } : undefined,
+      }}
+      config={{ displayModeBar: false, responsive: true }}
+      style={{ width: "100%" }}
+    />
+  );
+}
+
 export function LoadingChart({ branches }: { branches: Branch[] }) {
   const top = [...branches].sort((a, b) => b.loading_pct - a.loading_pct).slice(0, 15).reverse();
   return (

@@ -32,6 +32,22 @@ Lista viva de tareas que dejamos abiertas al avanzar. Cada una indica de qué et
       a violaciones + resumen + barras de la zona influenciada.
 - [ ] **N-1**: hoy solo sobre líneas de evacuación del PCC (10) y solo con planta; comparar también contra N-1 base.
 
+## De Etapa 6 (estudios dinámicos) — refinar en el barrido
+Los 4 estudios corren end-to-end y dan resultados sensatos (transient especialmente limpio: falla 3φ → V=0 →
+despeje → recuperación 0.998 pu, ángulo 83.7°). Refinamientos pendientes:
+- [ ] **Señal de frecuencia**: hoy se monitorea la velocidad del mayor generador (Punta Catalina), que es
+      una oscilación local, no la frecuencia del sistema. Usar COI o la frecuencia de barra del PCC; el nadir
+      de una máquina distante no es el nadir del SENI.
+- [ ] **Small-signal damping**: `damping_ratio` a menudo da `None` (señal distante / bien amortiguada) y se
+      reporta FALLA. Tratar `None` como indeterminado; monitorear un generador cercano al PCC; o configurar
+      `ComMod` (modal) que hoy no converge (ierr=1).
+- [ ] **Transient**: validar ubicación/tiempo de falla por esquema de protecciones; añadir curva LVRT/HVRT;
+      fallas en varias SSEE (Sajoma evalúa Naranjo/Sajoma/Navarrete/etc.). Confirmado `EvtShc i_shc=0` (3φ) y `=4` (despeje).
+- [ ] **Voltage (P-V)**: el sistema no colapsa a 1.6× carga; extender el rango o usar flujo de continuación
+      (CPF) para hallar el punto de colapso real; añadir curvas Q-V.
+- [ ] **Comparación con/sin planta** en los 4 dinámicos (hoy solo con planta).
+- [ ] **dt/tstop**: ajustados para que completen rápido (~50 s); afinar precisión vs velocidad en el barrido.
+
 ## De Etapa 1 (datos de referencia)
 - [ ] `pf_worker/refdata/` está gitignored (data de modom-pypsa). Si se quiere reproducibilidad sin el otro repo,
       considerar precomputar un `substation_coords.csv` mínimo (Z-code → lat/lon/source) y versionarlo.
