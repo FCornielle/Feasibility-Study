@@ -14,7 +14,11 @@ export const TABS: Tab[] = [
   { id: "voltage", label: "Voltage Stability" },
   { id: "frequency", label: "Frequency Stability" },
   { id: "quasi", label: "Quasi-dinámicas (OC)" },
+  { id: "report", label: "📋 Reporte de Interconexión" },
 ];
+
+// Orden de las secciones en el reporte consolidado.
+export const REPORT_ORDER = ["steady_state", "voltage", "small-signal", "transient", "frequency", "quasi"];
 
 // Pestañas con resultado de serie x/traces (componente DynamicStudy genérico).
 export const DYNAMIC_TABS = ["small-signal", "transient", "voltage", "frequency", "quasi"];

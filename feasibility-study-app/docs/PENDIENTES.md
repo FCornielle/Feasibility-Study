@@ -60,3 +60,13 @@ Refinamientos:
 - [ ] Compliance **por delta** vs base por hora (hoy absoluto sobre la tensión del PCC).
 - [ ] `pf_worker/refdata/` está gitignored (data de modom-pypsa). Si se quiere reproducibilidad sin el otro repo,
       considerar precomputar un `substation_coords.csv` mínimo (Z-code → lat/lon/source) y versionarlo.
+
+## De Etapa 8 (reporte / recurso)
+- [ ] **Estudio de Recurso** (pestaña 1): definir fuente de datos del recurso solar (irradiancia GHI/POA, estación
+      meteorológica, TMY) y el cálculo de energía/factor de planta. Es un estudio DISTINTO al de interconexión
+      (el de Sajoma es de interconexión). Hoy es un stub que lo explica.
+- [ ] **Exportar PDF real** del reporte (hoy = HTML imprimible desde el navegador, estilo self-contained de
+      modom-pypsa). Evaluar reportlab/weasyprint para PDF server-side.
+- [ ] **Reusar resultados ya corridos**: el reporte re-ejecuta los 6 estudios en serie (~5 min); permitir
+      ensamblar resultados existentes en vez de recalcular.
+- [ ] Añadir anexos (tablas crudas por estudio) y portada formal estilo Sajoma.

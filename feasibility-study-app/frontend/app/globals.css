@@ -84,3 +84,17 @@ table.compliance td { padding: 7px 8px; border-bottom: 1px solid var(--border); 
 
 .stub-msg { color: var(--muted); padding: 40px; text-align: center; border: 1px dashed var(--border); border-radius: 10px; }
 .err { color: var(--bad); font-size: 13px; margin-top: 8px; }
+
+/* Reporte consolidado */
+.report-head h2 { font-size: 18px; }
+.print-btn { margin-top: 8px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 7px 12px; border-radius: 7px; cursor: pointer; }
+.print-btn:hover { background: var(--accent); color: #fff; }
+.report-section h3 { color: var(--text); text-transform: none; font-size: 14px; }
+
+@media print {
+  .sidebar, .topbar, .print-btn { display: none !important; }
+  body, .app, .content, .scroll { height: auto; overflow: visible; background: #fff; color: #000; }
+  .card { border: 1px solid #ccc; background: #fff; break-inside: avoid; }
+  .report-section { break-inside: avoid; }
+  .badge.pasa { color: #157347; } .badge.falla { color: #b02a37; }
+}
