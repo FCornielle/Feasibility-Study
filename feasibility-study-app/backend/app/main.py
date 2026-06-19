@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import runs, substations
+from .routers import oc, runs, substations
 
 app = FastAPI(title="Estudios de Interconexión PV+BESS (SENI/DigSILENT)", version="0.1.0")
 
@@ -23,6 +23,7 @@ app.add_middleware(
 
 app.include_router(substations.router)
 app.include_router(runs.router)
+app.include_router(oc.router)
 
 
 @app.get("/api/health", tags=["health"])

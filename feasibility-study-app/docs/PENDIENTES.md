@@ -48,6 +48,15 @@ despeje → recuperación 0.998 pu, ángulo 83.7°). Refinamientos pendientes:
 - [ ] **Comparación con/sin planta** en los 4 dinámicos (hoy solo con planta).
 - [ ] **dt/tstop**: ajustados para que completen rápido (~50 s); afinar precisión vs velocidad en el barrido.
 
-## De Etapa 1 (datos de referencia)
+## De Etapa 7 (quasi-dinámico / OC) — refinar en el barrido
+Corre end-to-end (24/24 horas, demanda real del OC; PV solar y BESS mediodía→punta; PCC 0.967–0.983 pu PASA).
+Refinamientos:
+- [ ] Usar **ComStatsim/QDS con características** de PF en vez de flujos de carga repetidos.
+- [ ] **Mapear el despacho del OC por planta** a los generadores del modelo (hoy solo se escala la demanda total
+      uniformemente; ignora distribución espacial y el mix de generación por hora).
+- [ ] **Perfil solar real** (pronóstico renovable del OC / medición) en vez de la campana sintética.
+- [ ] **Restricción de energía del BESS (MWh)** no aplicada; hoy potencia fija por hora.
+- [ ] **Selección de fecha** en el frontend (hoy fija a hace 4 días) y exponer el mix de generación.
+- [ ] Compliance **por delta** vs base por hora (hoy absoluto sobre la tensión del PCC).
 - [ ] `pf_worker/refdata/` está gitignored (data de modom-pypsa). Si se quiere reproducibilidad sin el otro repo,
       considerar precomputar un `substation_coords.csv` mínimo (Z-code → lat/lon/source) y versionarlo.

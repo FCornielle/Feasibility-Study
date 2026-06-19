@@ -13,8 +13,8 @@ export const TABS: Tab[] = [
   { id: "transient", label: "Transient Stability" },
   { id: "voltage", label: "Voltage Stability" },
   { id: "frequency", label: "Frequency Stability" },
-  { id: "quasi", label: "Quasi-dinámicas (OC)", stub: true },
+  { id: "quasi", label: "Quasi-dinámicas (OC)" },
 ];
 
-// Pestañas dinámicas (resultado con serie x/traces); el resto se maneja aparte.
-export const DYNAMIC_TABS = ["small-signal", "transient", "voltage", "frequency"];
+// Pestañas con resultado de serie x/traces (componente DynamicStudy genérico).
+export const DYNAMIC_TABS = ["small-signal", "transient", "voltage", "frequency", "quasi"];

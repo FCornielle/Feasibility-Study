@@ -24,7 +24,9 @@ import connect  # noqa: E402
 import export  # noqa: E402
 from jobstore import JobStore  # noqa: E402
 from sandbox import PFRunSandbox  # noqa: E402
-from studies import frequency, small_signal, steady_state, transient, voltage  # noqa: E402
+from studies import (  # noqa: E402
+    frequency, quasi_dynamic, small_signal, steady_state, transient, voltage,
+)
 
 RESULTS_DIR = os.path.join(APP_ROOT, "results")
 
@@ -35,6 +37,7 @@ STUDIES = {
     "transient": transient.run,
     "voltage": voltage.run,
     "frequency": frequency.run,
+    "quasi": quasi_dynamic.run,
 }
 
 
