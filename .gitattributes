@@ -1,0 +1,2 @@
+# Los scripts de shell deben mantener saltos de línea LF (si no, bash falla con '\r').
+*.sh text eol=lf
