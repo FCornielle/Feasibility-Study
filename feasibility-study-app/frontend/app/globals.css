@@ -86,6 +86,15 @@ details.disp summary { cursor: pointer; padding: 8px 10px; display: flex; justif
 details.disp summary .muted { color: var(--muted); font-size: 12px; }
 details.disp table { padding: 0 10px 8px; }
 
+.ctab-wrap { overflow-x: auto; max-width: 100%; }
+table.ctab { border-collapse: collapse; font-size: 11px; }
+table.ctab th, table.ctab td { border: 1px solid var(--border); padding: 3px 6px; text-align: center; white-space: nowrap; }
+table.ctab th { color: var(--muted); background: var(--panel-2); position: sticky; top: 0; }
+table.ctab td.lname, table.ctab th.lname { text-align: left; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+table.ctab td.over { background: rgba(231,76,60,.25); color: #ffb3ab; font-weight: 700; }
+.deg1 { color: var(--accent); } .deg2 { color: var(--muted); }
+.cleg { font-size: 10px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+
 .kpi { display: flex; gap: 14px; flex-wrap: wrap; }
 .kpi .item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; min-width: 120px; }
 .kpi .item .v { font-size: 18px; font-weight: 700; }

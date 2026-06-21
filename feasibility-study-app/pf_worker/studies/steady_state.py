@@ -227,6 +227,77 @@ def _n1(app, pcc, contingency_lines, max_n=25) -> dict:
     return {"n_contingencies": len(results), "worst_loading_pct": worst, "cases": results}
 
 
+def _line_terms(app, ln):
+    out = []
+    for side in ("bus1", "bus2"):
+        cub = _attr(ln, side)
+        ct = _attr(cub, "cterm") if cub is not None else None
+        if ct is not None:
+            out.append(ct)
+    return out
+
+
+def _local_lines(app, sub):
+    """Líneas de 1.er grado (conectadas directo a la subestación de la planta) y de 2.º grado
+    (conectadas a una subestación vecina a la de la planta)."""
+    sub_terms = {t.GetFullName() for t in pv_bess.substation_terminals(app, sub)}
+    lines = [l for l in app.GetCalcRelevantObjects("*.ElmLne") if l.GetAttribute("outserv") == 0]
+    first, first_names, neigh_subs = [], set(), set()
+    for ln in lines:
+        terms = _line_terms(app, ln)
+        if any(t.GetFullName() in sub_terms for t in terms):
+            first.append(ln)
+            first_names.add(ln.GetFullName())
+            for t in terms:
+                ss = t.GetAttribute("cpSubstat")
+                if ss is not None and ss.loc_name != sub.loc_name:
+                    neigh_subs.add(ss.loc_name)
+    second = []
+    for ln in lines:
+        if ln.GetFullName() in first_names:
+            continue
+        for t in _line_terms(app, ln):
+            ss = t.GetAttribute("cpSubstat")
+            if ss is not None and ss.loc_name in neigh_subs:
+                second.append(ln)
+                break
+    return first, second
+
+
+def _contingency_matrix(app, sub, max_lines: int = 14) -> dict:
+    """Matriz N-1 estilo Sajoma: cargabilidad de cada línea local bajo la salida de cada línea local."""
+    first, second = _local_lines(app, sub)
+    monitored = (first + second)[:max_lines]
+    meta = [{"name": ln.loc_name, "degree": 1 if ln in first else 2} for ln in monitored]
+    _run_ldf(app)
+    base_load = [round(_attr(ln, "m:loading") or 0.0, 1) for ln in monitored]
+
+    saved = {ln.GetFullName(): ln.GetAttribute("outserv") for ln in monitored}
+    per_cont = []  # per_cont[j][i] = cargabilidad de la línea i con la contingencia j fuera
+    try:
+        for cln in monitored:
+            cln.SetAttribute("outserv", 1)
+            ierr = _run_ldf(app)
+            if ierr != 0:
+                per_cont.append([None] * len(monitored))
+            else:
+                per_cont.append([
+                    (round(_attr(ln, "m:loading") or 0.0, 1) if ln.GetFullName() != cln.GetFullName() else None)
+                    for ln in monitored
+                ])
+            cln.SetAttribute("outserv", saved[cln.GetFullName()])
+    finally:
+        for ln in monitored:
+            ln.SetAttribute("outserv", saved[ln.GetFullName()])
+        _run_ldf(app)
+
+    matrix = [[per_cont[j][i] for j in range(len(monitored))] for i in range(len(monitored))]
+    worst = max((v for col in per_cont for v in col if v is not None), default=None)
+    return {"lines": meta, "contingencies": [m["name"] for m in meta],
+            "base_loading": base_load, "matrix": matrix,
+            "worst_loading_pct": round(worst, 1) if worst is not None else None}
+
+
 def _evacuation_lines(app, sub):
     """Líneas conectadas a las barras de la subestación (circuitos de evacuación)."""
     term_names = {t.GetFullName() for t in pv_bess.substation_terminals(app, sub)}
@@ -303,11 +374,9 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         report("cortocircuito en el PCC", 55)
         data["short_circuit_with_plant"] = _short_circuit(app, plant["pcc"])
 
-        # 4) N-1 sobre líneas de evacuación (con planta)
-        report("análisis N-1", 70)
-        evac = _evacuation_lines(app, sub)
-        data["evacuation_lines"] = [l.loc_name for l in evac]
-        data["n1_with_plant"] = _n1(app, plant["pcc"], evac)
+        # 4) Análisis de contingencia (N-1) sobre las líneas locales (1.er y 2.º grado)
+        report("análisis de contingencia (N-1)", 70)
+        data["contingency"] = _contingency_matrix(app, sub)
         report("evaluando criterios", 90)
 
     # --- veredicto por DELTA: la planta no debe INTRODUCIR ni EMPEORAR violaciones (criterio Sajoma) ---
@@ -352,7 +421,9 @@ def main():
     print(f"  DELTA:  nuevas violaciones V={len(d['new_voltage_violations'])} sobrecargas={len(d['new_overloads'])} "
           f"d_maxload={d['max_loading_increase_pct']}%")
     print(f"  CC PCC: {data['short_circuit_with_plant']}")
-    print(f"  N-1:    {data['n1_with_plant']['n_contingencies']} cont., peor carga={data['n1_with_plant']['worst_loading_pct']}%")
+    ct = data["contingency"]
+    print(f"  Contingencia: {len(ct['lines'])} líneas locales, peor carga={ct['worst_loading_pct']}%")
+    print(f"  sistema: demanda={data['with_plant']['system']['demand_mw']}MW gen={data['with_plant']['system']['generation_mw']}MW pérdidas={data['with_plant']['system']['losses_mw']}MW")
     print(f"  CUMPLIMIENTO: {c}")
     print(f"  -> {path}")
 

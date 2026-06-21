@@ -41,6 +41,7 @@ class PFRunSandbox:
         self._created: list = []          # objetos creados, en orden de creación
         self._attr_changes: list = []     # (obj, attr, old_value) para revertir mutaciones del modelo
         self._orig_studycase = None       # Study Case a restaurar
+        self._orig_scenario = None        # Escenario de operación a restaurar
         self._studycase = None            # Study Case dedicado del run
         self._baseline = None             # conteo de integridad inicial
 
@@ -49,8 +50,11 @@ class PFRunSandbox:
         if self.verify:
             self._baseline = self._integrity()
         self._orig_studycase = self.app.GetActiveStudyCase()
-        # Capturar los grids activos en el Study Case original: un Study Case nuevo nace vacío
-        # (sin red), por lo que hay que reactivar esos grids para que el modelo sea calc-relevante.
+        # Capturar el ESCENARIO DE OPERACIÓN activo (loads/despacho/switches): un Study Case nuevo
+        # nace sin escenario, lo que da un punto de operación equivocado (demanda baja, el slack
+        # absorbiendo). Hay que reactivarlo para que la red tenga el despacho real.
+        self._orig_scenario = self.app.GetActiveScenario()
+        # Capturar los grids activos: un Study Case nuevo nace vacío (sin red), hay que reactivarlos.
         active_grids = self.app.GetCalcRelevantObjects("*.ElmNet")
         # Study Case dedicado: aísla settings de cálculo y resultados (ElmRes) del run.
         study_folder = self.app.GetProjectFolder("study")
@@ -59,6 +63,11 @@ class PFRunSandbox:
         for g in active_grids:
             try:
                 g.Activate()
+            except Exception:
+                pass
+        if self._orig_scenario is not None:
+            try:
+                self._orig_scenario.Activate()
             except Exception:
                 pass
         return self
@@ -105,6 +114,8 @@ class PFRunSandbox:
         try:
             if self._orig_studycase is not None and not self._orig_studycase.IsDeleted():
                 self._orig_studycase.Activate()
+            if self._orig_scenario is not None and not self._orig_scenario.IsDeleted():
+                self._orig_scenario.Activate()
         except Exception:
             pass
         # 2) Revertir mutaciones de atributos sobre objetos del modelo, en orden inverso.

@@ -7,7 +7,7 @@ import {
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { LoadingChart, VoltageChart, VoltageRadar } from "@/components/Charts";
-import { DispatchPanel, NeighborTable, SystemPanel } from "@/components/SteadyPanels";
+import { ContingencyTable, DispatchPanel, NeighborTable, SystemPanel } from "@/components/SteadyPanels";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 
@@ -138,6 +138,7 @@ export default function SteadyState() {
                 <VoltageRadar neighbors={result.pcc_neighbors} />
               </div>
             )}
+            {result.contingency && <ContingencyTable contingency={result.contingency} />}
             <div className="card">
               <h3>Gráficos</h3>
               {result.base?.buses && result.with_plant?.buses && (
