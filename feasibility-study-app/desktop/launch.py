@@ -49,11 +49,15 @@ def role_probe():
 
 def role_print_env():
     import connect
+    import paths
     versions = [v for v in connect.detect_pf_versions() if v["pythons"]]
     print("Versiones PF usables:", [v["version"] for v in versions])
     print("PF_VERSION:", os.environ.get("PF_VERSION", connect.DEFAULT_VERSION))
     print("PF_PROJECT:", os.environ.get("PF_PROJECT", connect.DEFAULT_PROJECT))
-    print("Frontend out/ existe:", os.path.isdir(os.path.join(APP_ROOT, "frontend", "out")))
+    print("frozen:", getattr(sys, "frozen", False))
+    print("FRONTEND_OUT:", paths.FRONTEND_OUT, "->", os.path.isdir(paths.FRONTEND_OUT))
+    print("RESULTS_DIR:", paths.RESULTS_DIR, "->", os.path.isdir(paths.RESULTS_DIR))
+    print("substations.json:", os.path.exists(os.path.join(paths.RESULTS_DIR, "substations.json")))
 
 
 # --------------------------------------------------------------------------- shell (GUI)
