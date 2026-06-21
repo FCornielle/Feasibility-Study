@@ -61,6 +61,17 @@ Refinamientos:
 - [ ] `pf_worker/refdata/` está gitignored (data de modom-pypsa). Si se quiere reproducibilidad sin el otro repo,
       considerar precomputar un `substation_coords.csv` mínimo (Z-code → lat/lon/source) y versionarlo.
 
+## De la etapa Desktop (.exe) — siguientes pasos
+La app empaqueta y arranca: detecta PF, resuelve el frontend bundleado, siembra el modelo y muestra
+los selectores. Para producto final:
+- [ ] **Instalador** (NSIS/Inno Setup/MSIX) sobre `dist/InterconexionPVBESS/` con accesos directos.
+- [ ] **Ícono** (.ico) en el EXE (`icon=` en el spec) y branding.
+- [ ] **Firma de código** (certificado) para evitar SmartScreen.
+- [ ] Confirmar en vivo el **worker congelado** conectando a PF (popups → ventana → correr un estudio).
+- [ ] Manejar **selección de versión PF** cuando haya >1 usable (hoy 2021 SP2 no tiene bindings → se filtra).
+- [ ] Persistir la última selección (versión/proyecto) y permitir cambiarla desde la app.
+- [ ] Reducir tamaño del bundle (excludes de Qt/test) y considerar one-file con dir de datos en %LOCALAPPDATA%.
+
 ## De Etapa 8 (reporte / recurso)
 - [ ] **Estudio de Recurso** (pestaña 1): definir fuente de datos del recurso solar (irradiancia GHI/POA, estación
       meteorológica, TMY) y el cálculo de energía/factor de planta. Es un estudio DISTINTO al de interconexión
