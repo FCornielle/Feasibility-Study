@@ -1,4 +1,5 @@
 "use client";
+import { LoadingChart } from "@/components/Charts";
 
 export function SystemPanel({ base, plant }: { base: any; plant: any }) {
   if (!plant?.system) return null;
@@ -55,12 +56,13 @@ export function DispatchPanel({ dispatch }: { dispatch: any }) {
   );
 }
 
-export function ContingencyTable({ contingency }: { contingency: any }) {
+export function ContingencyTable({ contingency, branches }: { contingency: any; branches?: any[] }) {
   if (!contingency?.lines?.length) return null;
   const { lines, contingencies, matrix, base_loading, worst_loading_pct } = contingency;
   return (
     <div className="card">
       <h3>Análisis de Contingencia (N-1) — peor carga {worst_loading_pct}%</h3>
+      {branches && branches.length > 0 && <LoadingChart branches={branches} />}
       <div className="ctab-wrap">
         <table className="ctab">
           <thead>

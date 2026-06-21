@@ -6,7 +6,7 @@ import {
   RunJob, RunParams, Substation,
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
-import { LoadingChart, VoltageChart, VoltageRadar } from "@/components/Charts";
+import { VoltageRadar } from "@/components/Charts";
 import { ContingencyTable, DispatchPanel, NeighborTable, SystemPanel } from "@/components/SteadyPanels";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
@@ -21,15 +21,18 @@ export default function SteadyState() {
   const [job, setJob] = useState<RunJob | null>(null);
   const [result, setResult] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState(false); // cajón de resultados
 
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
 
   const selSub = subs.find((s) => s.name === selected) || null;
   const matches = useMemo(
-    () => (query ? subs.filter((s) => s.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8) : []),
+    () => (query
+      ? subs.filter((s) => (s.display_name || s.name).toLowerCase().includes(query.toLowerCase())
+          || s.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+      : []),
     [query, subs]
   );
-
   const running = job?.status === "queued" || job?.status === "running";
 
   async function launch() {
@@ -40,86 +43,99 @@ export default function SteadyState() {
       setJob(created);
       const close = watchRun(created.run_id, (j) => {
         setJob(j);
-        if (j.status === "done") { getResult(j.run_id).then(setResult).catch(() => {}); close(); }
+        if (j.status === "done") {
+          getResult(j.run_id).then((r) => { setResult(r); setOpen(true); }).catch(() => {});
+          close();
+        }
         if (j.status === "error") close();
       });
     } catch (e) { setErr(String(e)); }
   }
 
   return (
-    <div className="grid2">
-      {/* Columna izquierda: mapa de selección */}
-      <div>
-        <div className="card">
-          <h3>Subestación (clic en el mapa o busca)</h3>
-          <input
-            placeholder="Buscar subestación…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {matches.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              {matches.map((s) => (
-                <div key={s.name} className="selected" style={{ cursor: "pointer", marginTop: 4 }}
-                     onClick={() => { setSelected(s.name); setQuery(""); }}>
-                  {s.display_name || s.name} · {s.voltages_kv.join("/")} kV
-                </div>
-              ))}
+    <div className="ss-wrap">
+      {result && (
+        <button className="drawer-toggle" onClick={() => setOpen((o) => !o)} title="Resultados">
+          ☰ Resultados {result.compliance?.overall && <span className={`badge ${result.compliance.overall === "PASA" ? "pasa" : "falla"}`}>{result.compliance.overall}</span>}
+        </button>
+      )}
+
+      <div className="grid2">
+        {/* Izquierda: mapa */}
+        <div>
+          <div className="card">
+            <h3>Subestación (clic en el mapa o busca)</h3>
+            <input placeholder="Buscar subestación…" value={query} onChange={(e) => setQuery(e.target.value)} />
+            {matches.length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                {matches.map((s) => (
+                  <div key={s.name} className="selected" style={{ cursor: "pointer", marginTop: 4 }}
+                       onClick={() => { setSelected(s.name); setQuery(""); }}>
+                    {s.display_name || s.name} · {s.voltages_kv.join("/")} kV
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 10 }}>
+              <GridMap selected={selected} onSelect={setSelected} voltages={result?.substation_voltages} />
             </div>
-          )}
-          <div style={{ marginTop: 10 }}>
-            <GridMap selected={selected} onSelect={setSelected} voltages={result?.substation_voltages} />
           </div>
+          {result && <SystemPanel base={result.base} plant={result.with_plant} />}
         </div>
 
-        {/* Bajo el mapa: balance del sistema y despacho (tras correr) */}
-        {result && <SystemPanel base={result.base} plant={result.with_plant} />}
-        {result && <DispatchPanel dispatch={result.dispatch} />}
+        {/* Derecha: parámetros y ejecución */}
+        <div>
+          <div className="card">
+            <h3>Planta a interconectar</h3>
+            {selSub ? (
+              <div className="selected">Subestación: <b>{selSub.display_name || selSub.name}</b> · {selSub.voltages_kv.join("/")} kV</div>
+            ) : (
+              <div className="selected">Selecciona una subestación…</div>
+            )}
+            <div className="row">
+              <div><label>PV (MW)</label>
+                <input type="number" value={params.pv_mw} onChange={(e) => setParams({ ...params, pv_mw: +e.target.value })} /></div>
+              <div><label>BESS (MW)</label>
+                <input type="number" value={params.bess_mw} onChange={(e) => setParams({ ...params, bess_mw: +e.target.value })} /></div>
+            </div>
+            <div className="row">
+              <div><label>BESS (MWh)</label>
+                <input type="number" value={params.bess_mwh} onChange={(e) => setParams({ ...params, bess_mwh: +e.target.value })} /></div>
+              <div><label>Modo BESS</label>
+                <select value={params.bess_mode} onChange={(e) => setParams({ ...params, bess_mode: e.target.value as RunParams["bess_mode"] })}>
+                  <option value="discharge">Descarga (punta)</option>
+                  <option value="charge">Carga (mediodía)</option>
+                </select></div>
+            </div>
+            <button className="run" disabled={!selected || running} onClick={launch}>
+              {running ? "Ejecutando…" : "Ejecutar Steady State"}
+            </button>
+            {job && running && (
+              <>
+                <div className="progress"><div style={{ width: `${job.progress}%` }} /></div>
+                <div className="phase">{job.progress}% · {job.phase}</div>
+              </>
+            )}
+            {err && <div className="err">{err}</div>}
+            {job?.status === "error" && <div className="err">Error: {job.error}</div>}
+          </div>
+          {result && <DispatchPanel dispatch={result.dispatch} />}
+        </div>
       </div>
 
-      {/* Columna derecha: parámetros, ejecución, resultados */}
-      <div>
-        <div className="card">
-          <h3>Planta a interconectar</h3>
-          {selSub ? (
-            <div className="selected">Subestación: <b>{selSub.display_name || selSub.name}</b> · {selSub.voltages_kv.join("/")} kV</div>
-          ) : (
-            <div className="selected">Selecciona una subestación…</div>
-          )}
-          <div className="row">
-            <div><label>PV (MW)</label>
-              <input type="number" value={params.pv_mw}
-                onChange={(e) => setParams({ ...params, pv_mw: +e.target.value })} /></div>
-            <div><label>BESS (MW)</label>
-              <input type="number" value={params.bess_mw}
-                onChange={(e) => setParams({ ...params, bess_mw: +e.target.value })} /></div>
-          </div>
-          <div className="row">
-            <div><label>BESS (MWh)</label>
-              <input type="number" value={params.bess_mwh}
-                onChange={(e) => setParams({ ...params, bess_mwh: +e.target.value })} /></div>
-            <div><label>Modo BESS</label>
-              <select value={params.bess_mode}
-                onChange={(e) => setParams({ ...params, bess_mode: e.target.value as RunParams["bess_mode"] })}>
-                <option value="discharge">Descarga (punta)</option>
-                <option value="charge">Carga (mediodía)</option>
-              </select></div>
-          </div>
-          <button className="run" disabled={!selected || running} onClick={launch}>
-            {running ? "Ejecutando…" : "Ejecutar Steady State"}
-          </button>
-          {job && running && (
-            <>
-              <div className="progress"><div style={{ width: `${job.progress}%` }} /></div>
-              <div className="phase">{job.progress}% · {job.phase}</div>
-            </>
-          )}
-          {err && <div className="err">{err}</div>}
-          {job?.status === "error" && <div className="err">Error: {job.error}</div>}
-        </div>
+      {/* Franja para reabrir el cajón */}
+      {result && !open && (
+        <button className="drawer-handle" onClick={() => setOpen(true)}>◂ Resultados</button>
+      )}
 
+      {/* Cajón de resultados (desplegable) */}
+      <aside className={`drawer ${open ? "open" : ""}`}>
+        <div className="drawer-head">
+          <b>Resultados — {result?.pcc?.name} ({result?.pcc?.kv} kV)</b>
+          <button className="drawer-x" onClick={() => setOpen(false)}>✕</button>
+        </div>
         {result && (
-          <>
+          <div className="drawer-body">
             <div className="card">
               <h3>Cumplimiento (Código de Conexión)</h3>
               <ComplianceTable compliance={result.compliance} />
@@ -138,17 +154,12 @@ export default function SteadyState() {
                 <VoltageRadar neighbors={result.pcc_neighbors} />
               </div>
             )}
-            {result.contingency && <ContingencyTable contingency={result.contingency} />}
-            <div className="card">
-              <h3>Gráficos</h3>
-              {result.base?.buses && result.with_plant?.buses && (
-                <VoltageChart base={result.base.buses} plant={result.with_plant.buses} />
-              )}
-              {result.with_plant?.branches && <LoadingChart branches={result.with_plant.branches} />}
-            </div>
-          </>
+            {result.contingency && (
+              <ContingencyTable contingency={result.contingency} branches={result.with_plant?.branches} />
+            )}
+          </div>
         )}
-      </div>
+      </aside>
     </div>
   );
 }
