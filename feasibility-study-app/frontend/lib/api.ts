@@ -45,6 +45,7 @@ export interface RunJob {
 export interface RunRequest extends RunParams {
   substation: string;
   study?: string;
+  scenario?: string | null;
 }
 
 async function jget<T>(path: string): Promise<T> {

@@ -12,12 +12,17 @@ import { ContingencyTable, DispatchPanel, NeighborTable, ShortCircuitSection, Sy
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 
 const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge" };
+const HOURS = Array.from({ length: 24 }, (_, i) => {
+  const n = String(i + 1).padStart(2, "0");
+  return { value: `P${n}`, label: `P${n} — ${n}:00` };
+});
 
 export default function SteadyState() {
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [params, setParams] = useState<RunParams>(DEFAULT_PARAMS);
+  const [scenario, setScenario] = useState<string>(""); // "" = escenario activo
   const [job, setJob] = useState<RunJob | null>(null);
   const [result, setResult] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -42,7 +47,7 @@ export default function SteadyState() {
     if (!selected) return;
     setErr(null); setResult(null);
     try {
-      const created = await createRun({ substation: selected, ...params });
+      const created = await createRun({ substation: selected, ...params, scenario: scenario || undefined });
       setJob(created);
       const close = watchRun(created.run_id, (j) => {
         setJob(j);
@@ -96,10 +101,10 @@ export default function SteadyState() {
             <div className="row">
               <div><label>BESS (MWh)</label>
                 <input type="number" value={params.bess_mwh} onChange={(e) => setParams({ ...params, bess_mwh: +e.target.value })} /></div>
-              <div><label>Modo BESS</label>
-                <select value={params.bess_mode} onChange={(e) => setParams({ ...params, bess_mode: e.target.value as RunParams["bess_mode"] })}>
-                  <option value="discharge">Descarga (punta)</option>
-                  <option value="charge">Carga (mediodía)</option>
+              <div><label>Hora del día (escenario)</label>
+                <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
+                  <option value="">Auto (escenario activo)</option>
+                  {HOURS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
                 </select></div>
             </div>
             <button className="run" disabled={!selected || running} onClick={launch}>

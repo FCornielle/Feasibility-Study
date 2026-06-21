@@ -93,9 +93,9 @@ export function VoltageRadar({ neighbors, subNames }: { neighbors: Neighbor[]; s
           bgcolor: "rgba(0,0,0,0)",
         },
         legend: { orientation: "h", y: 1.12 },
-        title: "Tensión de barras vecinas (pu) — con vs sin planta",
+        title: "Tensión de barras vecinas (pu) — con vs sin planta · (scroll para zoom)",
       }}
-      config={{ displayModeBar: false, responsive: true }}
+      config={{ displayModeBar: false, responsive: true, scrollZoom: true }}
       style={{ width: "100%" }}
     />
   );

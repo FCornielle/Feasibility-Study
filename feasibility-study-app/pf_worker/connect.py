@@ -102,6 +102,24 @@ def activate_project(app, name: str) -> None:
         raise RuntimeError(f"Proyecto '{name}' no quedó activo tras ActivateProject.")
 
 
+def list_scenarios(app) -> list[str]:
+    """Escenarios de operación (P01..P24 = las 24 horas) del proyecto activo."""
+    sf = app.GetProjectFolder("scen")
+    return sorted(s.loc_name for s in sf.GetContents("*.IntScenario")) if sf else []
+
+
+def activate_scenario(app, name: str) -> bool:
+    """Activa el escenario de operación por nombre. Devuelve True si lo encontró."""
+    sf = app.GetProjectFolder("scen")
+    if sf is None:
+        return False
+    for s in sf.GetContents("*.IntScenario"):
+        if s.loc_name == name:
+            s.Activate()
+            return True
+    return False
+
+
 def list_projects(app) -> list[str]:
     """Proyectos del usuario activo de PowerFactory (para el selector de la app)."""
     user = app.GetCurrentUser()

@@ -47,12 +47,18 @@ def process_one(app, store: JobStore) -> bool:
     job = store.claim_next()
     if job is None:
         return False
-    rid, study, sub, params = job["run_id"], job["study"], job["substation"], job["params"]
+    rid, study, sub = job["run_id"], job["study"], job["substation"]
+    params = dict(job["params"])
     print(f"[{rid}] {study} sub={sub} params={params}")
     try:
         runner = STUDIES.get(study)
         if runner is None:
             raise ValueError(f"Estudio desconocido: {study!r}")
+        # Escenario de operación (hora) elegido: se activa antes de correr; el sandbox lo captura.
+        scenario = params.pop("scenario", None)
+        if scenario:
+            if not connect.activate_scenario(app, scenario):
+                print(f"[{rid}] aviso: escenario '{scenario}' no encontrado; se usa el activo")
 
         def progress(phase, pct, _rid=rid):
             store.update(_rid, phase=phase, progress=pct)

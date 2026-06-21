@@ -1,6 +1,8 @@
 """Esquemas de request/response del API."""
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -12,7 +14,8 @@ class RunRequest(BaseModel):
     bess_mwh: float = Field(0.0, ge=0, description="Energía BESS (MWh)")
     bess_mode: str = Field("discharge", pattern="^(discharge|charge)$",
                            description="Modo del BESS: 'discharge' (punta) o 'charge' (mediodía)")
+    scenario: Optional[str] = Field(None, description="Escenario de operación / hora (P01..P24); None = el activo")
 
     def to_params(self) -> dict:
         return {"pv_mw": self.pv_mw, "bess_mw": self.bess_mw,
-                "bess_mwh": self.bess_mwh, "bess_mode": self.bess_mode}
+                "bess_mwh": self.bess_mwh, "bess_mode": self.bess_mode, "scenario": self.scenario}

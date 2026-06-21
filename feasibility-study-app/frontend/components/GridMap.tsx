@@ -12,16 +12,24 @@ function levelColor(kvs: number[] = []): string {
   return "#8aa0b4";
 }
 
-// Heatmap de tensión (pu) estilo DigSILENT: rojo (baja) → blanco (~1.0) → azul (alta).
+// Heatmap de tensión (pu): AZUL (baja) → blanco angosto (~1.0) → NARANJA → ROJO (alta).
 function heatColor(u: number): string {
   const lo = 0.93, hi = 1.07, mid = 1.0;
   const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
+  const cl = (x: number) => Math.max(0, Math.min(1, x));
   if (u <= mid) {
-    const t = Math.max(0, Math.min(1, (u - lo) / (mid - lo)));
-    return `rgb(${lerp(231, 235, t)},${lerp(76, 235, t)},${lerp(60, 235, t)})`;   // rojo→blanco
+    // azul → blanco; t^1.6 mantiene el azul hasta cerca de 1.0 (poco blanco)
+    const t = Math.pow(cl((u - lo) / (mid - lo)), 1.6);
+    return `rgb(${lerp(46, 240, t)},${lerp(134, 240, t)},${lerp(255, 240, t)})`;
   }
-  const t = Math.max(0, Math.min(1, (u - mid) / (hi - mid)));
-  return `rgb(${lerp(235, 46, t)},${lerp(235, 134, t)},${lerp(235, 255, t)})`;     // blanco→azul
+  // blanco → naranja → rojo; t^0.7 sale rápido del blanco
+  const t = Math.pow(cl((u - mid) / (hi - mid)), 0.7);
+  if (t < 0.5) {
+    const k = t / 0.5;
+    return `rgb(${lerp(240, 243, k)},${lerp(240, 156, k)},${lerp(240, 18, k)})`;   // blanco→naranja
+  }
+  const k = (t - 0.5) / 0.5;
+  return `rgb(${lerp(243, 231, k)},${lerp(156, 76, k)},${lerp(18, 60, k)})`;        // naranja→rojo
 }
 
 export default function GridMap({
@@ -87,7 +95,7 @@ export default function GridMap({
       {heat && (
         <div className="legend">
           <span>0.93</span>
-          <i style={{ background: "linear-gradient(90deg,#e74c3c,#ebebeb,#2e86ff)" }} />
+          <i style={{ background: "linear-gradient(90deg,#2e86ff,#f0f0f0 50%,#f39c12 78%,#e74c3c)" }} />
           <span>1.07 pu</span>
         </div>
       )}
