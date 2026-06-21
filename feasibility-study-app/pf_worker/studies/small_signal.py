@@ -21,9 +21,10 @@ import pv_bess  # noqa: E402
 from sandbox import PFRunSandbox  # noqa: E402
 
 STUDY = "small-signal"
-TSTOP, DT = 8.0, 0.01
-FAULT_T, CLEAR_MS = 1.0, 60          # perturbación: falla trifásica breve en el PCC
-PERTURBATION = "Falla trifásica de 60 ms en el PCC (perturbación pequeña para excitar los modos)"
+TSTOP, DT = 5.0, 0.01
+N_GENS = 5
+PULSE_T, PULSE_MS = 1.0, 80          # falla trifásica breve en el PCC (excita los modos limpiamente)
+PERTURBATION = "Falla trifásica de 80 ms en el PCC (perturbación para excitar los modos)"
 
 
 def _record(app, res, gens):
@@ -44,7 +45,7 @@ def _analyze(speeds):
     any_t = next(iter(speeds.values()))[0]
     n = min(len(v[1]) for v in speeds.values())
     coi = [sum(v[1][i] for v in speeds.values()) / len(speeds) for i in range(n)]
-    post = [(any_t[i], coi[i]) for i in range(n) if any_t[i] > FAULT_T + CLEAR_MS / 1000.0]
+    post = [(any_t[i], coi[i]) for i in range(n) if any_t[i] > PULSE_T + PULSE_MS / 1000.0]
     modes = dynamics.electromechanical_modes([p[1] for p in post], DT) if len(post) > 20 else []
     crit = modes[0]["damping_pct"] if modes else None        # modo crítico (menos amortiguado)
     # series para el frontend (downsampled)
@@ -76,12 +77,12 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=N
             hour = int(re.sub(r"\D", "", scen.loc_name)) if re.search(r"\d", scen.loc_name) else None
         data["scenario"] = {"name": scen.loc_name if scen else None, "hour": hour}
 
-        dgens = dynamics.distant_generators(app, pcc)
+        dgens = dynamics.distant_generators(app, pcc, n=N_GENS)
         data["distant_gens"] = [g.loc_name for g in dgens]
 
-        # Perturbación (creada una vez; vale para ambas corridas)
-        dynamics.add_event(sb, app, "EvtShc", "fault", FAULT_T, target=pcc, i_shc=0)
-        dynamics.add_event(sb, app, "EvtShc", "clear", FAULT_T + CLEAR_MS / 1000.0, target=pcc, i_shc=4)
+        # Perturbación: falla trifásica breve en el PCC (excita los modos con buena relación señal/ruido).
+        dynamics.add_event(sb, app, "EvtShc", "fault", PULSE_T, target=pcc, i_shc=0)
+        dynamics.add_event(sb, app, "EvtShc", "clear", PULSE_T + PULSE_MS / 1000.0, target=pcc, i_shc=4)
 
         # SIN planta
         report("RMS sin planta (perturbación pequeña)", 30)

@@ -100,7 +100,11 @@ export default function SmallSignalStudy() {
             <button className="run" disabled={!selected || running} onClick={launch}>
               {running ? "Ejecutando…" : "Ejecutar Small Signal"}
             </button>
-            <p className="phase" style={{ marginTop: 8 }}>Corre 2 simulaciones RMS (sin y con planta). Puede tardar varios minutos según la hora.</p>
+            <p className="phase" style={{ marginTop: 8, color: "var(--warn)" }}>
+              ⚠ Corre 2 simulaciones RMS (sin y con planta). En <b>horas de alta generación solar</b>
+              (≈ P09–P17) el RMS es mucho más lento por los inversores (puede tardar varios minutos).
+              Para pruebas rápidas usa horas nocturnas (P20–P05).
+            </p>
             {job && running && (<><div className="progress"><div style={{ width: `${job.progress}%` }} /></div><div className="phase">{job.progress}% · {job.phase}</div></>)}
             {err && <div className="err">{err}</div>}
             {job?.status === "error" && <div className="err">Error: {job.error}</div>}

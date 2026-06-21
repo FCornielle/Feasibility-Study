@@ -183,7 +183,7 @@ def matrix_pencil(y, dt, max_order: int = 16):
     return [complex(v) for v in lam]
 
 
-def electromechanical_modes(y, dt, fmin=0.1, fmax=2.5):
+def electromechanical_modes(y, dt, fmin=0.3, fmax=2.5):
     """Modos electromecánicos (0.1–2.5 Hz) de la señal: lista de {real, imag, freq_hz, damping_pct}."""
     import numpy as np
     out, seen = [], set()
