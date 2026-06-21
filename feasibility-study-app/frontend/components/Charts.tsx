@@ -124,6 +124,47 @@ export function LoadingChart({ branches, title }: { branches: Branch[]; title?: 
   );
 }
 
+interface Mode { real: number; imag: number; freq_hz: number; damping_pct: number; }
+export function EigenvalueChart({ sin, con }: { sin: Mode[]; con: Mode[] }) {
+  return (
+    <Plot
+      data={[
+        { x: sin.map((m) => m.real), y: sin.map((m) => m.imag), mode: "markers", type: "scatter",
+          name: "sin planta", marker: { symbol: "circle-open", color: "#f1c40f", size: 11, line: { width: 2 } } },
+        { x: con.map((m) => m.real), y: con.map((m) => m.imag), mode: "markers", type: "scatter",
+          name: "con planta", marker: { symbol: "x", color: "#2e86ff", size: 10 } },
+      ]}
+      layout={{
+        ...DARK, height: 360, title: "Autovalores (plano complejo) — modos electromecánicos · (scroll = zoom)",
+        legend: { orientation: "h", y: 1.15 },
+        xaxis: { title: "σ parte real [1/s]  ·  estable ← | → inestable", zeroline: false },
+        yaxis: { title: "ω parte imaginaria [rad/s]" },
+        shapes: [{ type: "line", x0: 0, x1: 0, yref: "paper", y0: 0, y1: 1, line: { color: "#e74c3c", dash: "dash", width: 1 } }],
+      }}
+      config={{ displayModeBar: false, responsive: true, scrollZoom: true }}
+      style={{ width: "100%" }}
+    />
+  );
+}
+
+export function SpeedChart({ series, title }: { series: any; title?: string }) {
+  if (!series?.traces?.length) return <div className="phase">Sin datos de velocidad.</div>;
+  return (
+    <Plot
+      data={series.traces.map((tr: any) => ({
+        x: series.x, y: tr.y, type: "scattergl", mode: "lines", name: tr.name, line: { width: 1 },
+      }))}
+      layout={{
+        ...DARK, height: 340, title: title ?? "Velocidad de generadores [pu]",
+        legend: { orientation: "h", y: -0.25, font: { size: 9 } },
+        xaxis: { title: series.x_label }, yaxis: { title: "velocidad [pu]" }, margin: { l: 55, r: 15, t: 34, b: 70 },
+      }}
+      config={{ displayModeBar: false, responsive: true, scrollZoom: true }}
+      style={{ width: "100%" }}
+    />
+  );
+}
+
 interface ScRow { bus: string; sub?: string | null; ikss_base: number | null; ikss_plant: number | null; }
 export function ShortCircuitChart({ rows, subNames }: { rows: ScRow[]; subNames?: Record<string, string> }) {
   const r = rows.filter((x) => x.ikss_base != null || x.ikss_plant != null);

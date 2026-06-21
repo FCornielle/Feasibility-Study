@@ -3,6 +3,7 @@ import { useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import SteadyState from "@/components/SteadyState";
 import DynamicStudy from "@/components/DynamicStudy";
+import SmallSignalStudy from "@/components/SmallSignalStudy";
 import ReportRunner from "@/components/ReportRunner";
 import { DYNAMIC_TABS, TABS } from "@/lib/tabs";
 
@@ -29,6 +30,8 @@ export default function Page() {
         <div className="scroll">
           {tab === "steady" ? (
             <SteadyState />
+          ) : tab === "small-signal" ? (
+            <SmallSignalStudy />
           ) : tab === "report" ? (
             <ReportRunner />
           ) : DYNAMIC_TABS.includes(tab) ? (

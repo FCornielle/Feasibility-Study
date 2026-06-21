@@ -135,6 +135,74 @@ def damping_ratio(y):
     return delta / math.sqrt(4 * math.pi ** 2 + delta ** 2)
 
 
+def _gps_of_term(term):
+    ss = term.GetAttribute("cpSubstat") if term is not None else None
+    if ss is None:
+        return None
+    la, lo = ss.GetAttribute("GPSlat"), ss.GetAttribute("GPSlon")
+    return (la, lo) if (la and lo) else None
+
+
+def distant_generators(app, pcc, n: int = 7):
+    """Generadores síncronos en servicio más LEJANOS (geográficamente) del PCC.
+    Son los que tienden a perder sincronismo en una oscilación inter-área."""
+    p = _gps_of_term(pcc)
+    scored = []
+    for s in app.GetCalcRelevantObjects("*.ElmSym"):
+        if s.GetAttribute("outserv") != 0:
+            continue
+        cub = s.GetAttribute("bus1")
+        term = cub.GetAttribute("cterm") if cub is not None else None
+        g = _gps_of_term(term)
+        d = ((p[0] - g[0]) ** 2 + (p[1] - g[1]) ** 2) ** 0.5 if (p and g) else -1.0
+        scored.append((d, s))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [s for _, s in scored[:n]]
+
+
+def matrix_pencil(y, dt, max_order: int = 16):
+    """Extrae los modos (autovalores λ = σ ± jω) de una señal por matrix-pencil/Prony (numpy)."""
+    import numpy as np
+    y = np.asarray(y, float)
+    y = y - y.mean()
+    nrm = np.max(np.abs(y)) or 1.0
+    y = y / nrm
+    N = len(y)
+    if N < 30:
+        return []
+    L = min(N // 2, 120)   # cap para que pinv/eigvals sean rápidos (suficiente para modos lentos)
+    H = np.array([y[i:i + L] for i in range(N - L + 1)])   # Hankel (N-L+1) x L
+    H1, H2 = H[:-1], H[1:]
+    try:
+        A = np.linalg.pinv(H1) @ H2
+        z = np.linalg.eigvals(A)
+    except np.linalg.LinAlgError:
+        return []
+    z = z[np.abs(z) > 1e-6]
+    lam = np.log(z.astype(complex)) / dt
+    return [complex(v) for v in lam]
+
+
+def electromechanical_modes(y, dt, fmin=0.1, fmax=2.5):
+    """Modos electromecánicos (0.1–2.5 Hz) de la señal: lista de {real, imag, freq_hz, damping_pct}."""
+    import numpy as np
+    out, seen = [], set()
+    for lam in matrix_pencil(y, dt):
+        f = abs(lam.imag) / (2 * np.pi)
+        if not (fmin <= f <= fmax):
+            continue
+        mag = abs(lam) or 1e-9
+        zeta = -lam.real / mag * 100.0
+        key = (round(f, 2), round(zeta, 1))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"real": round(lam.real, 4), "imag": round(abs(lam.imag), 4),
+                    "freq_hz": round(f, 3), "damping_pct": round(zeta, 2)})
+    out.sort(key=lambda m: m["damping_pct"])   # el crítico (menos amortiguado) primero
+    return out
+
+
 def downsample(t, y, max_pts: int = 600):
     """Reduce la serie para el frontend conservando la forma."""
     n = len(t)
