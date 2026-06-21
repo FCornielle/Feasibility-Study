@@ -1,0 +1,7 @@
+# Dependencias para empaquetar la app de escritorio (.exe).
+# Incluye también las del backend (FastAPI/uvicorn) porque el .exe las embebe.
+pywebview>=5.0
+pyinstaller>=6.0
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5

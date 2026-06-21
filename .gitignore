@@ -41,6 +41,8 @@ node_modules/
 out/
 dist/
 build/
+build_pyi/
+*.egg-info/
 npm-debug.log*
 yarn-error.log*
 .pnpm-debug.log*

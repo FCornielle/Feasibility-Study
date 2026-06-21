@@ -22,13 +22,14 @@ for _p in (HERE, APP_ROOT):
 
 import connect  # noqa: E402
 import export  # noqa: E402
+import paths  # noqa: E402
 from jobstore import JobStore  # noqa: E402
 from sandbox import PFRunSandbox  # noqa: E402
 from studies import (  # noqa: E402
     frequency, quasi_dynamic, report, small_signal, steady_state, transient, voltage,
 )
 
-RESULTS_DIR = os.path.join(APP_ROOT, "results")
+RESULTS_DIR = paths.RESULTS_DIR
 
 # Registro de estudios disponibles (clave = id que envía el frontend).
 STUDIES = {

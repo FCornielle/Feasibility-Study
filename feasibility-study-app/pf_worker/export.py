@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
-RESULTS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "results"))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # APP_ROOT
+import paths  # noqa: E402
+
+RESULTS_DIR = paths.RESULTS_DIR
 
 
 def write_results(run_id: str, study: str, data: dict) -> str:

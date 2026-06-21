@@ -1,8 +1,16 @@
 // Cliente del backend FastAPI. En dev, /api se reescribe a http://localhost:8000 (ver next.config).
 // El WebSocket se conecta directo al backend (las reescrituras de Next no proxean WS de forma fiable).
 
-export const WS_BASE =
-  process.env.NEXT_PUBLIC_WS_BASE ?? "ws://localhost:8000";
+// WS: override por env (dev) -> mismo origen (desktop, servido por el backend) -> fallback :8000.
+function wsBase(): string {
+  if (process.env.NEXT_PUBLIC_WS_BASE) return process.env.NEXT_PUBLIC_WS_BASE;
+  if (typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${window.location.host}`;
+  }
+  return "ws://localhost:8000";
+}
+export const WS_BASE = wsBase();
 
 export interface Substation {
   name: string;

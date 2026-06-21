@@ -13,38 +13,61 @@ from __future__ import annotations
 import os
 import sys
 
-# Nombre del proyecto objetivo dentro de PowerFactory (ya importado por el usuario).
-DEFAULT_PROJECT = "PDD 30-09-2025"
+# Defaults (se pueden sobreescribir por argumento o variables de entorno PF_PROJECT / PF_VERSION).
+DEFAULT_PROJECT = os.environ.get("PF_PROJECT", "PDD 30-09-2025")
+DEFAULT_VERSION = os.environ.get("PF_VERSION", "2024")
 
-# Raíz de instalación de PowerFactory 2024.
-PF_INSTALL = r"C:\Program Files\DIgSILENT\PowerFactory 2024"
+# Raíz donde DIgSILENT instala las versiones de PowerFactory.
+PF_ROOT = r"C:\Program Files\DIgSILENT"
 
 
-def _pf_python_dir() -> str:
+def pf_install_dir(version: str = DEFAULT_VERSION) -> str:
+    return os.path.join(PF_ROOT, f"PowerFactory {version}")
+
+
+def detect_pf_versions() -> list[dict]:
+    """Versiones de PowerFactory instaladas y sus bindings de Python (sin conectar al motor)."""
+    out = []
+    if not os.path.isdir(PF_ROOT):
+        return out
+    for name in sorted(os.listdir(PF_ROOT)):
+        if not name.startswith("PowerFactory "):
+            continue
+        path = os.path.join(PF_ROOT, name)
+        pydir = os.path.join(path, "Python")
+        pythons = sorted(os.listdir(pydir)) if os.path.isdir(pydir) else []
+        out.append({"version": name.replace("PowerFactory ", "").strip(), "path": path, "pythons": pythons})
+    return out
+
+
+def _pf_python_dir(install: str) -> str:
     """Carpeta de `powerfactory.pyd` acorde a la versión de Python en ejecución."""
     ver = f"{sys.version_info.major}.{sys.version_info.minor}"
-    path = os.path.join(PF_INSTALL, "Python", ver)
+    path = os.path.join(install, "Python", ver)
     if not os.path.isdir(path):
+        avail = os.listdir(os.path.join(install, "Python")) if os.path.isdir(os.path.join(install, "Python")) else []
         raise RuntimeError(
-            f"PowerFactory 2024 no trae binding para Python {ver}. "
-            f"Versiones disponibles: {os.listdir(os.path.join(PF_INSTALL, 'Python'))}. "
-            f"Ejecuta el worker con uno de esos intérpretes."
+            f"{os.path.basename(install)} no trae binding para Python {ver}. "
+            f"Versiones disponibles: {avail}. Ejecuta el worker con uno de esos intérpretes."
         )
     return path
 
 
-def get_app(project: str = DEFAULT_PROJECT):
+def get_app(project: str | None = None, pf_version: str | None = None):
     """Importa powerfactory, obtiene la aplicación en modo engine y activa `project`.
 
+    `project`/`pf_version` toman el valor de los argumentos, luego de PF_PROJECT/PF_VERSION, luego el default.
     Devuelve el objeto `app` de PowerFactory con el proyecto ya activado.
     """
-    pf_dir = _pf_python_dir()
+    project = project or DEFAULT_PROJECT
+    install = pf_install_dir(pf_version or DEFAULT_VERSION)
+    pf_dir = _pf_python_dir(install)
     if pf_dir not in sys.path:
         sys.path.insert(0, pf_dir)
     # La DLL del engine necesita estar en el PATH del proceso.
-    os.environ["PATH"] = PF_INSTALL + os.pathsep + os.environ.get("PATH", "")
+    os.environ["PATH"] = install + os.pathsep + os.environ.get("PATH", "")
     if hasattr(os, "add_dll_directory"):
-        os.add_dll_directory(PF_INSTALL)
+        os.add_dll_directory(install)
 
     import powerfactory  # noqa: E402  (import dinámico tras ajustar sys.path)
 
@@ -77,6 +100,14 @@ def activate_project(app, name: str) -> None:
     prj = app.GetActiveProject()
     if prj is None:
         raise RuntimeError(f"Proyecto '{name}' no quedó activo tras ActivateProject.")
+
+
+def list_projects(app) -> list[str]:
+    """Proyectos del usuario activo de PowerFactory (para el selector de la app)."""
+    user = app.GetCurrentUser()
+    if user is None:
+        return []
+    return sorted({o.loc_name.strip() for o in user.GetContents("*.IntPrj")})
 
 
 def summary(app) -> dict:
