@@ -74,8 +74,17 @@ table.compliance td { padding: 7px 8px; border-bottom: 1px solid var(--border); 
 .badge.pasa { background: rgba(46,204,113,.15); color: var(--good); }
 .badge.falla { background: rgba(231,76,60,.15); color: var(--bad); }
 
-.map { height: 460px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.map { height: 460px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); position: relative; }
 .leaflet-container { background: #0b1118; }
+.legend { position: absolute; bottom: 10px; left: 10px; z-index: 500; background: rgba(11,17,24,.85);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; display: flex; align-items: center;
+  gap: 6px; font-size: 10px; color: var(--muted); }
+.legend i { display: inline-block; width: 90px; height: 8px; border-radius: 3px; }
+
+details.disp { border: 1px solid var(--border); border-radius: 7px; margin-bottom: 6px; }
+details.disp summary { cursor: pointer; padding: 8px 10px; display: flex; justify-content: space-between; font-size: 13px; }
+details.disp summary .muted { color: var(--muted); font-size: 12px; }
+details.disp table { padding: 0 10px 8px; }
 
 .kpi { display: flex; gap: 14px; flex-wrap: wrap; }
 .kpi .item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; min-width: 120px; }

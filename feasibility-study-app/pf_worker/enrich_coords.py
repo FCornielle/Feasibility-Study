@@ -16,7 +16,7 @@ from __future__ import annotations
 import csv
 import json
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 REFDATA = os.path.join(os.path.dirname(__file__), "refdata")
 RESULTS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "results"))
@@ -46,6 +46,59 @@ def _substation_to_buscodes() -> dict:
             if r["subestacion"] and r["for_name"]:
                 sub[r["subestacion"]].append(r["for_name"])
     return sub
+
+
+def _bus_names() -> dict:
+    """bus_id_modom (W) -> nombre legible (bus_name de modom)."""
+    out = {}
+    with open(os.path.join(REFDATA, "buses_with_coords.csv"), encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r.get("bus_name", "").strip():
+                out[r["bus_id_modom"]] = r["bus_name"].strip()
+    return out
+
+
+def substation_display_names() -> dict:
+    """código de subestación (Z) -> nombre legible (el bus_name más común de sus barras)."""
+    names = _bus_names()
+    sub2bus = _substation_to_buscodes()
+    out = {}
+    for ssub, codes in sub2bus.items():
+        cand = [names[c] for c in codes if c in names]
+        if cand:
+            out[ssub] = Counter(cand).most_common(1)[0][0]
+    return out
+
+
+def add_display_names(results_dir: str = RESULTS_DIR) -> int:
+    """Agrega `display_name` legible a substations.json y grid_map.geojson (idempotente, sin PF)."""
+    disp = substation_display_names()
+    subs_path = os.path.join(results_dir, "substations.json")
+    with open(subs_path, encoding="utf-8") as f:
+        subs = json.load(f)
+    n = 0
+    for s in subs:
+        # Relleno: solo si no hay display_name del modelo (o es igual al código).
+        if s.get("display_name") and s["display_name"] != s["name"]:
+            continue
+        name = disp.get(s["name"])
+        s["display_name"] = name or s["name"]
+        if name:
+            n += 1
+    with open(subs_path, "w", encoding="utf-8") as f:
+        json.dump(subs, f, ensure_ascii=False, indent=2)
+
+    geo_path = os.path.join(results_dir, "grid_map.geojson")
+    if os.path.exists(geo_path):
+        with open(geo_path, encoding="utf-8") as f:
+            fc = json.load(f)
+        for ft in fc["features"]:
+            if ft["properties"].get("kind") == "substation":
+                code = ft["properties"]["name"]
+                ft["properties"]["display_name"] = disp.get(code, code)
+        with open(geo_path, "w", encoding="utf-8") as f:
+            json.dump(fc, f, ensure_ascii=False)
+    return n
 
 
 def substation_coords_from_modom() -> dict:

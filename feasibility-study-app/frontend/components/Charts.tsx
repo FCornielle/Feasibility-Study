@@ -64,6 +64,33 @@ export function SeriesChart({ series }: { series: Series }) {
   );
 }
 
+interface Neighbor { bus: string; sub?: string | null; v_base: number | null; v_plant: number | null; }
+
+export function VoltageRadar({ neighbors }: { neighbors: Neighbor[] }) {
+  const pts = neighbors.filter((n) => n.v_base != null && n.v_plant != null);
+  if (pts.length < 3) return <div className="phase">Radar requiere ≥3 barras con tensión.</div>;
+  const labels = pts.map((n) => `${n.sub ?? ""} ${n.bus}`.trim().slice(0, 22));
+  const close = (a: (number | null)[]) => [...a, a[0]];
+  return (
+    <Plot
+      data={[
+        { type: "scatterpolar", r: close(pts.map((n) => n.v_base)), theta: [...labels, labels[0]],
+          fill: "toself", name: "sin planta", line: { color: "#8aa0b4" }, fillcolor: "rgba(138,160,180,.15)" },
+        { type: "scatterpolar", r: close(pts.map((n) => n.v_plant)), theta: [...labels, labels[0]],
+          fill: "toself", name: "con planta", line: { color: "#2e86ff" }, fillcolor: "rgba(46,134,255,.2)" },
+      ]}
+      layout={{
+        ...DARK, height: 360,
+        polar: { radialaxis: { tickfont: { size: 9 }, angle: 90 }, bgcolor: "rgba(0,0,0,0)" },
+        legend: { orientation: "h", y: 1.12 },
+        title: "Tensión de barras vecinas (pu) — con vs sin planta",
+      }}
+      config={{ displayModeBar: false, responsive: true }}
+      style={{ width: "100%" }}
+    />
+  );
+}
+
 export function LoadingChart({ branches }: { branches: Branch[] }) {
   const top = [...branches].sort((a, b) => b.loading_pct - a.loading_pct).slice(0, 15).reverse();
   return (

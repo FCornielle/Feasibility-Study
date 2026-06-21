@@ -14,6 +14,7 @@ export const WS_BASE = wsBase();
 
 export interface Substation {
   name: string;
+  display_name?: string;
   voltages_kv: number[];
   lat: number | null;
   lon: number | null;
@@ -55,7 +56,7 @@ async function jget<T>(path: string): Promise<T> {
 export interface GridFeature {
   type: "Feature";
   geometry: { type: "Point" | "LineString"; coordinates: number[] | number[][] };
-  properties: { kind: "substation" | "line"; name: string; voltages_kv?: number[]; kv?: number; coord_source?: string };
+  properties: { kind: "substation" | "line"; name: string; display_name?: string; voltages_kv?: number[]; kv?: number; coord_source?: string };
 }
 export interface GridGeoJSON {
   type: "FeatureCollection";

@@ -6,7 +6,8 @@ import {
   RunJob, RunParams, Substation,
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
-import { LoadingChart, VoltageChart } from "@/components/Charts";
+import { LoadingChart, VoltageChart, VoltageRadar } from "@/components/Charts";
+import { DispatchPanel, NeighborTable, SystemPanel } from "@/components/SteadyPanels";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 
@@ -61,15 +62,19 @@ export default function SteadyState() {
               {matches.map((s) => (
                 <div key={s.name} className="selected" style={{ cursor: "pointer", marginTop: 4 }}
                      onClick={() => { setSelected(s.name); setQuery(""); }}>
-                  {s.name} · {s.voltages_kv.join("/")} kV
+                  {s.display_name || s.name} · {s.voltages_kv.join("/")} kV
                 </div>
               ))}
             </div>
           )}
           <div style={{ marginTop: 10 }}>
-            <GridMap selected={selected} onSelect={setSelected} />
+            <GridMap selected={selected} onSelect={setSelected} voltages={result?.substation_voltages} />
           </div>
         </div>
+
+        {/* Bajo el mapa: balance del sistema y despacho (tras correr) */}
+        {result && <SystemPanel base={result.base} plant={result.with_plant} />}
+        {result && <DispatchPanel dispatch={result.dispatch} />}
       </div>
 
       {/* Columna derecha: parámetros, ejecución, resultados */}
@@ -77,7 +82,7 @@ export default function SteadyState() {
         <div className="card">
           <h3>Planta a interconectar</h3>
           {selSub ? (
-            <div className="selected">Subestación: <b>{selSub.name}</b> · {selSub.voltages_kv.join("/")} kV</div>
+            <div className="selected">Subestación: <b>{selSub.display_name || selSub.name}</b> · {selSub.voltages_kv.join("/")} kV</div>
           ) : (
             <div className="selected">Selecciona una subestación…</div>
           )}
@@ -126,6 +131,13 @@ export default function SteadyState() {
                 <div className="item"><div className="v">{result.delta?.max_loading_increase_pct}%</div><div className="l">Δ carga máx</div></div>
               </div>
             </div>
+            {result.pcc_neighbors?.length > 0 && (
+              <div className="card">
+                <h3>Barras vecinas al PCC — tensión antes / después</h3>
+                <NeighborTable rows={result.pcc_neighbors} />
+                <VoltageRadar neighbors={result.pcc_neighbors} />
+              </div>
+            )}
             <div className="card">
               <h3>Gráficos</h3>
               {result.base?.buses && result.with_plant?.buses && (

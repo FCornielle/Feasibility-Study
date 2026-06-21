@@ -72,6 +72,107 @@ def _capture(app) -> dict:
     }
 
 
+def _attr(o, a, default=None):
+    try:
+        return o.GetAttribute(a)
+    except Exception:
+        return default
+
+
+def _system_totals(app) -> dict:
+    """Demanda, generación y pérdidas del sistema tras un LDF (P en MW, Q en Mvar)."""
+    dp = dq = 0.0
+    for ld in app.GetCalcRelevantObjects("*.ElmLod"):
+        if ld.GetAttribute("outserv") == 0:
+            dp += _attr(ld, "m:P:bus1", 0.0) or 0.0
+            dq += _attr(ld, "m:Q:bus1", 0.0) or 0.0
+    gp = gq = 0.0
+    for cls in ("*.ElmSym", "*.ElmGenstat"):
+        for g in app.GetCalcRelevantObjects(cls):
+            if g.GetAttribute("outserv") == 0:
+                gp += _attr(g, "m:P:bus1", 0.0) or 0.0
+                gq += _attr(g, "m:Q:bus1", 0.0) or 0.0
+    return {"demand_mw": round(dp, 1), "demand_mvar": round(dq, 1),
+            "generation_mw": round(gp, 1), "generation_mvar": round(gq, 1),
+            "losses_mw": round(gp - dp, 1)}
+
+
+def _tech(g) -> str:
+    c = _attr(g, "cCategory")
+    if c:
+        return str(c)
+    return "Síncrono" if g.GetClassName() == "ElmSym" else "Otro"
+
+
+def _dispatch(app) -> dict:
+    """Generadores despachados agrupados por tecnología, con P y Q, ordenados de mayor a menor."""
+    by = {}
+    for cls in ("*.ElmSym", "*.ElmGenstat"):
+        for g in app.GetCalcRelevantObjects(cls):
+            if g.GetAttribute("outserv") != 0:
+                continue
+            p, q = _attr(g, "m:P:bus1"), _attr(g, "m:Q:bus1")
+            if p is None or (abs(p) < 0.01 and abs(q or 0) < 0.01):
+                continue
+            t = by.setdefault(_tech(g), {"tech": _tech(g), "p_mw": 0.0, "q_mvar": 0.0, "units": []})
+            t["p_mw"] += p
+            t["q_mvar"] += q or 0.0
+            t["units"].append({"name": g.loc_name, "p_mw": round(p, 2), "q_mvar": round(q or 0.0, 2)})
+    techs = []
+    for t in by.values():
+        t["units"].sort(key=lambda x: x["p_mw"], reverse=True)
+        t["p_mw"], t["q_mvar"] = round(t["p_mw"], 1), round(t["q_mvar"], 1)
+        techs.append(t)
+    techs.sort(key=lambda x: x["p_mw"], reverse=True)
+    return {"technologies": techs,
+            "total_p_mw": round(sum(t["p_mw"] for t in techs), 1),
+            "total_q_mvar": round(sum(t["q_mvar"] for t in techs), 1)}
+
+
+def _substation_voltages(app) -> dict:
+    """código de subestación -> tensión (pu) de su barra energizada de mayor tensión (para el heatmap)."""
+    best = {}
+    for t in app.GetCalcRelevantObjects("*.ElmTerm"):
+        ss = t.GetAttribute("cpSubstat")
+        if ss is None or t.GetAttribute("outserv") != 0:
+            continue
+        u = _attr(t, "m:u")
+        if not u or u <= 0.01:
+            continue
+        kv = t.GetAttribute("uknom")
+        cur = best.get(ss.loc_name)
+        if cur is None or kv > cur[0]:
+            best[ss.loc_name] = (kv, round(u, 4))
+    return {k: v[1] for k, v in best.items()}
+
+
+def _neighbor_buses(app, sub, limit: int = 5) -> list:
+    """Barras de subestaciones VECINAS conectadas por una línea/trafo a la subestación de la planta."""
+    sub_terms = {t.GetFullName() for t in pv_bess.substation_terminals(app, sub)}
+    out, seen = [], set()
+    for cls in ("*.ElmLne", "*.ElmTr2", "*.ElmTr3"):
+        for br in app.GetCalcRelevantObjects(cls):
+            if br.GetAttribute("outserv") != 0:
+                continue
+            terms = []
+            for side in ("bus1", "bus2", "bus3"):
+                cub = _attr(br, side)
+                ct = _attr(cub, "cterm") if cub is not None else None
+                if ct is not None:
+                    terms.append(ct)
+            names = [t.GetFullName() for t in terms]
+            if not any(n in sub_terms for n in names):
+                continue
+            for t in terms:
+                fn = t.GetFullName()
+                ss = t.GetAttribute("cpSubstat")
+                if fn in sub_terms or fn in seen or ss is None or ss.loc_name == sub.loc_name:
+                    continue
+                seen.add(fn)
+                out.append(t)
+    return out[:limit]
+
+
 def _short_circuit(app, pcc) -> dict:
     """Ikss 3φ y 1φ en el PCC (IEC 60909)."""
     out = {}
@@ -157,10 +258,21 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         if _run_ldf(app) != 0:
             raise RuntimeError("El flujo de carga base no convergió.")
         data["base"] = _capture(app)
+        data["base"]["system"] = _system_totals(app)
+        sv_base = _substation_voltages(app)
 
         # PCC = barra de mayor tensión ENERGIZADA de la subestación (evita barras muertas/spare)
         pcc = pv_bess.pick_pcc(app, sub, energized=True)
         data["pcc"] = {"name": pcc.loc_name, "kv": round(pcc.GetAttribute("uknom"), 1)}
+
+        # Barras de subestaciones vecinas + sus tensiones SIN planta (para la comparación antes/después).
+        neighbors = _neighbor_buses(app, sub)
+        nb_base = {}
+        for t in neighbors:
+            ss = t.GetAttribute("cpSubstat")
+            nb_base[t.GetFullName()] = (t.loc_name, round(t.GetAttribute("uknom"), 1),
+                                        _attr(t, "m:u"), ss.loc_name if ss else None)
+        pcc_v_base = _attr(pcc, "m:u")
 
         # 2) Con planta PV+BESS
         report("modelando PV+BESS y flujo con planta", 35)
@@ -168,6 +280,24 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         if _run_ldf(app) != 0:
             raise RuntimeError("El flujo de carga con planta no convergió.")
         data["with_plant"] = _capture(app)
+        data["with_plant"]["system"] = _system_totals(app)
+        data["substation_voltages"] = _substation_voltages(app)      # con planta -> heatmap
+        data["substation_voltages_base"] = sv_base
+        data["dispatch"] = _dispatch(app)
+
+        # Tensiones de las barras vecinas al PCC, antes vs después (incluye el PCC).
+        def _vu(t):
+            u = _attr(t, "m:u")
+            return round(u, 4) if u else None
+
+        rows = [{"bus": pcc.loc_name, "sub": sub_name, "kv": data["pcc"]["kv"], "is_pcc": True,
+                 "v_base": round(pcc_v_base, 4) if pcc_v_base else None, "v_plant": _vu(pcc)}]
+        for t in neighbors:
+            b = nb_base.get(t.GetFullName())
+            rows.append({"bus": t.loc_name, "sub": b[3] if b else None, "kv": b[1] if b else None,
+                         "is_pcc": False, "v_base": round(b[2], 4) if b and b[2] else None,
+                         "v_plant": _vu(t)})
+        data["pcc_neighbors"] = rows
 
         # 3) Cortocircuito en el PCC (con planta)
         report("cortocircuito en el PCC", 55)

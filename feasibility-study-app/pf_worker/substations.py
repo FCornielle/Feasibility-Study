@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import os
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 
 import connect
 
@@ -29,9 +30,47 @@ def _voltages_by_substation(app) -> dict:
     return volt
 
 
+_NOISE = re.compile(
+    r"\b(\d+(\.\d+)?\s*kv|barra\s*\d*|secci[oó]n\s*\d*|sec\.?\s*[a-z0-9]+|b\d+|lado\s*\w+|"
+    r"\bse\b|\bsub\.?estaci[oó]n\b)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_name(text: str) -> str:
+    """Extrae el nombre de sitio de un texto de terminal (quita kV/Barra/Sección/paréntesis/etc.)."""
+    s = re.sub(r"\(.*?\)", " ", text)        # quita (3), (1)...
+    s = _NOISE.sub(" ", s)
+    s = re.sub(r"[\d]+", " ", s)             # restos numéricos
+    s = re.sub(r"\s+", " ", s).strip(" -·,").strip()
+    return s.title() if s else ""
+
+
+def _is_readable(name: str) -> bool:
+    """Acepta nombres multi-palabra alfabéticos (descarta códigos como 'Wlrpuf')."""
+    return " " in name and len(re.sub(r"[^A-Za-zÁÉÍÓÚÑáéíóúñ]", "", name)) >= 5
+
+
+def _display_names_by_substation(app) -> dict:
+    """código de subestación -> nombre legible derivado del `desc` o `loc_name` de sus terminales."""
+    names = defaultdict(list)
+    for t in app.GetCalcRelevantObjects("*.ElmTerm"):
+        ss = t.GetAttribute("cpSubstat")
+        if ss is None:
+            continue
+        d = t.GetAttribute("desc")
+        desc = " ".join(str(x) for x in d) if isinstance(d, list) else str(d or "")
+        for raw in (desc, t.loc_name):
+            clean = _clean_name(raw)
+            if _is_readable(clean) and len(clean) <= 40:
+                names[ss.loc_name].append(clean)
+    return {k: Counter(v).most_common(1)[0][0] for k, v in names.items() if v}
+
+
 def enumerate_substations(app) -> list[dict]:
-    """Lista de subestaciones con nombre, tensiones (kV), lat/lon y bandera de GPS."""
+    """Lista de subestaciones con nombre legible, tensiones (kV), lat/lon y bandera de GPS."""
     volt = _voltages_by_substation(app)
+    disp = _display_names_by_substation(app)
     out = []
     for s in app.GetCalcRelevantObjects("*.ElmSubstat"):
         lat = s.GetAttribute("GPSlat")
@@ -40,6 +79,7 @@ def enumerate_substations(app) -> list[dict]:
         out.append(
             {
                 "name": s.loc_name,
+                "display_name": disp.get(s.loc_name) or s.loc_name,
                 "voltages_kv": sorted(volt.get(s, [])),
                 "lat": lat if has_gps else None,
                 "lon": lon if has_gps else None,

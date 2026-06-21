@@ -13,13 +13,14 @@ import json
 import os
 
 import connect
-from substations import _voltages_by_substation
+from substations import _display_names_by_substation, _voltages_by_substation
 
 RESULTS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "results"))
 
 
 def _substation_features(app) -> list[dict]:
     volt = _voltages_by_substation(app)
+    disp = _display_names_by_substation(app)
     feats = []
     for s in app.GetCalcRelevantObjects("*.ElmSubstat"):
         lat, lon = s.GetAttribute("GPSlat"), s.GetAttribute("GPSlon")
@@ -32,6 +33,7 @@ def _substation_features(app) -> list[dict]:
                 "properties": {
                     "kind": "substation",
                     "name": s.loc_name,
+                    "display_name": disp.get(s.loc_name) or s.loc_name,
                     "voltages_kv": sorted(volt.get(s, [])),
                 },
             }
