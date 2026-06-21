@@ -113,7 +113,7 @@ def _dispatch(app) -> dict:
             if g.GetAttribute("outserv") != 0:
                 continue
             p, q = _attr(g, "m:P:bus1"), _attr(g, "m:Q:bus1")
-            if p is None or (abs(p) < 0.01 and abs(q or 0) < 0.01):
+            if p is None:   # incluir unidades en servicio aunque despachen 0 (p.ej. solar de noche)
                 continue
             t = by.setdefault(_tech(g), {"tech": _tech(g), "p_mw": 0.0, "q_mvar": 0.0, "units": []})
             t["p_mw"] += p

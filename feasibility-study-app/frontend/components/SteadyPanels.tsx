@@ -109,42 +109,44 @@ export function ContingencyTable({ contingency }: { contingency: any }) {
     <div className="card">
       <h3>Análisis de Contingencia (N-1) — peor carga {worst_loading_pct}%</h3>
       <LoadingChart branches={localBars} title="Cargabilidad de líneas locales (%)" />
-      <div className="ctab-wrap">
-        <table className="ctab">
-          <thead>
-            <tr>
-              <th className="lname">Circuito influenciado</th>
-              <th title="Carga sin contingencia">N</th>
-              {contingencies.map((c: string, j: number) => (
-                <th key={j} title={c}>F{j + 1}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l: any, i: number) => (
-              <tr key={i}>
-                <td className="lname" title={l.name}>
-                  <span className={l.degree === 1 ? "deg1" : "deg2"}>{l.degree === 1 ? "●" : "○"}</span> {l.name}
-                </td>
-                <td>{base_loading[i]}</td>
-                {matrix[i].map((v: number | null, j: number) => (
-                  <td key={j} className={v != null && v > 100 ? "over" : ""}>{v == null ? "·" : v}</td>
+      <div className="ctab-layout">
+        <div className="ctab-wrap">
+          <table className="ctab">
+            <thead>
+              <tr>
+                <th className="lname">Circuito influenciado</th>
+                <th title="Carga sin contingencia">N</th>
+                {contingencies.map((c: string, j: number) => (
+                  <th key={j} title={c}>F{j + 1}</th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {lines.map((l: any, i: number) => (
+                <tr key={i}>
+                  <td className="lname" title={l.name}>
+                    <span className={l.degree === 1 ? "deg1" : "deg2"}>{l.degree === 1 ? "●" : "○"}</span> {l.name}
+                  </td>
+                  <td>{base_loading[i]}</td>
+                  {matrix[i].map((v: number | null, j: number) => (
+                    <td key={j} className={v != null && v > 100 ? "over" : ""}>{v == null ? "·" : v}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="cleg-list">
+          <div className="cleg-title">Contingencias (columnas)</div>
+          {contingencies.map((c: string, j: number) => (
+            <div key={j} className="cleg-item"><b>F{j + 1}</b> {c}</div>
+          ))}
+        </div>
       </div>
       <p className="phase" style={{ marginTop: 8 }}>
-        Columnas <b>F1…F{contingencies.length}</b> = falla de cada circuito · <b>N</b> = sin contingencia ·
-        celdas en % de cargabilidad (<span style={{ color: "var(--bad)" }}>rojo</span> &gt; 100%).
+        <b>N</b> = sin contingencia · celdas en % de cargabilidad (<span style={{ color: "var(--bad)" }}>rojo</span> &gt; 100%).
         <span className="deg1"> ●</span> 1.er grado · <span className="deg2">○</span> 2.º grado.
       </p>
-      <div className="cleg">
-        {contingencies.map((c: string, j: number) => (
-          <span key={j}><b>F{j + 1}</b>: {c} &nbsp;</span>
-        ))}
-      </div>
     </div>
   );
 }

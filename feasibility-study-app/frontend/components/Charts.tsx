@@ -71,6 +71,11 @@ export function VoltageRadar({ neighbors, subNames }: { neighbors: Neighbor[]; s
   if (pts.length < 3) return <div className="phase">Radar requiere ≥3 barras con tensión.</div>;
   const labels = pts.map((n) => (subNames?.[n.sub ?? ""] || n.sub || n.bus).slice(0, 18));
   const close = (a: (number | null)[]) => [...a, a[0]];
+  // Escala = rango real de las tensiones (min..max de las barras), con un pequeño margen.
+  const vals = pts.flatMap((n) => [n.v_base!, n.v_plant!]);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = Math.max((hi - lo) * 0.15, 0.002);
+  const range: [number, number] = [+(lo - pad).toFixed(4), +(hi + pad).toFixed(4)];
   return (
     <Plot
       data={[
@@ -84,7 +89,7 @@ export function VoltageRadar({ neighbors, subNames }: { neighbors: Neighbor[]; s
       layout={{
         ...DARK, height: 380,
         polar: {
-          radialaxis: { range: [0.85, 1.1], tickfont: { size: 9 }, angle: 90, tickformat: ".2f" },
+          radialaxis: { range, tickfont: { size: 9 }, angle: 90, tickformat: ".3f" },
           bgcolor: "rgba(0,0,0,0)",
         },
         legend: { orientation: "h", y: 1.12 },

@@ -116,7 +116,15 @@ table.ctab th { color: var(--muted); background: var(--panel-2); position: stick
 table.ctab td.lname, table.ctab th.lname { text-align: left; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 table.ctab td.over { background: rgba(231,76,60,.25); color: #ffb3ab; font-weight: 700; }
 .deg1 { color: var(--accent); } .deg2 { color: var(--muted); }
-.cleg { font-size: 10px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+.ctab-layout { display: flex; gap: 16px; align-items: flex-start; }
+.ctab-layout .ctab-wrap { flex: 1 1 auto; }
+.cleg-list { flex: 0 0 260px; max-height: 360px; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; background: var(--panel-2); }
+.cleg-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+.cleg-item { font-size: 11px; padding: 3px 0; border-bottom: 1px solid var(--border); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.cleg-item b { color: var(--accent); margin-right: 6px; }
+@media (max-width: 900px) { .ctab-layout { flex-direction: column; } .cleg-list { flex-basis: auto; width: 100%; } }
 
 .kpi { display: flex; gap: 14px; flex-wrap: wrap; }
 .kpi .item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; min-width: 120px; }
