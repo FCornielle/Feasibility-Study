@@ -4,6 +4,9 @@ const LABELS: Record<string, string> = {
   no_new_voltage_violation: "Sin nuevas violaciones de tensión",
   no_new_overload: "Sin nuevas sobrecargas",
   no_loading_worsening_over_limit: "No empeora cargabilidad sobre el límite",
+  sistema_estable: "Sistema estable (σ < 0 en todos los modos)",
+  amortiguamiento_adecuado: "Amortiguamiento del modo crítico ≥ 5%",
+  no_reduce_amortiguamiento: "La planta no reduce el amortiguamiento",
   overall: "RESULTADO GENERAL",
 };
 

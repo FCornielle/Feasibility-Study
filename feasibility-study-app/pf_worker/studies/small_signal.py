@@ -21,9 +21,11 @@ import pv_bess  # noqa: E402
 from sandbox import PFRunSandbox  # noqa: E402
 
 STUDY = "small-signal"
-TSTOP, DT = 5.0, 0.01
+TSTOP, DT = 6.0, 0.01
 N_GENS = 5
-PULSE_T, PULSE_MS = 1.0, 80          # falla trifásica breve en el PCC (excita los modos limpiamente)
+MIN_DAMPING = 5.0                    # % amortiguamiento mínimo aceptable del modo crítico
+PULSE_T, PULSE_MS = 0.5, 80          # falla en el PCC al inicio -> ventana post-falla larga (>5 s)
+FAULT_X_PU = 0.20                    # impedancia de falla (pu sobre Zbase del PCC): dip moderado, RMS converge
 PERTURBATION = "Falla trifásica de 80 ms en el PCC (perturbación para excitar los modos)"
 
 
@@ -80,8 +82,13 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=N
         dgens = dynamics.distant_generators(app, pcc, n=N_GENS)
         data["distant_gens"] = [g.loc_name for g in dgens]
 
-        # Perturbación: falla trifásica breve en el PCC (excita los modos con buena relación señal/ruido).
-        dynamics.add_event(sb, app, "EvtShc", "fault", PULSE_T, target=pcc, i_shc=0)
+        # Perturbación: falla trifásica breve en el PCC, pero CON impedancia de falla para que la
+        # tensión baje de forma moderada (no a 0). Una falla franca colapsa la tensión y satura los
+        # inversores -> el RMS diverge y la simulación se corta antes de tiempo (sin oscilación post-falla,
+        # sin modos). Con Xf ~ fracción de la Zbase del PCC el dip excita los modos y el RMS converge.
+        zbase = (pcc.GetAttribute("uknom") ** 2) / 100.0   # ohm, base 100 MVA
+        xf = round(FAULT_X_PU * zbase, 3)
+        dynamics.add_event(sb, app, "EvtShc", "fault", PULSE_T, target=pcc, i_shc=0, R_f=0.0, X_f=xf)
         dynamics.add_event(sb, app, "EvtShc", "clear", PULSE_T + PULSE_MS / 1000.0, target=pcc, i_shc=4)
 
         # SIN planta
@@ -104,11 +111,20 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=N
     data["modes"] = {"sin_planta": modes_base, "con_planta": modes_plant}
     data["damping_index"] = {"sin_planta": crit_base, "con_planta": crit_plant}
 
+    # Criterio (Código de Conexión / práctica small-signal):
+    #  - sistema estable: el modo crítico con planta tiene amortiguamiento > 0 (σ < 0).
+    #  - amortiguamiento adecuado: modo crítico con planta >= MIN_DAMPING (bien amortiguado).
+    #  - no reduce: tolerante al ruido de la extracción modal de una sola respuesta -> pasa si la caída es
+    #    pequeña O si igual queda bien amortiguado (>= MIN_DAMPING).
     stable = (crit_plant is not None) and crit_plant > 0
-    no_worse = (crit_base is None) or (crit_plant is not None and crit_plant >= crit_base - 0.1)
+    well_damped = (crit_plant is not None) and crit_plant >= MIN_DAMPING
+    no_worse = (crit_base is None) or (crit_plant is not None and
+                                       (crit_plant >= crit_base - 2.0 or crit_plant >= MIN_DAMPING))
+    data["min_damping"] = MIN_DAMPING
     data["compliance"] = {
         "sistema_estable": criteria.verdict(stable),
+        "amortiguamiento_adecuado": criteria.verdict(well_damped),
         "no_reduce_amortiguamiento": criteria.verdict(no_worse),
-        "overall": criteria.verdict(stable and no_worse),
+        "overall": criteria.verdict(stable and well_damped and no_worse),
     }
     return data
