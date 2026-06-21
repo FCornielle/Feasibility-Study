@@ -7,7 +7,7 @@ import {
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { VoltageRadar } from "@/components/Charts";
-import { ContingencyTable, DispatchPanel, NeighborTable, SystemPanel } from "@/components/SteadyPanels";
+import { ContingencyTable, DispatchPanel, NeighborTable, ShortCircuitSection, SystemPanel } from "@/components/SteadyPanels";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 
@@ -25,6 +25,10 @@ export default function SteadyState() {
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
 
   const selSub = subs.find((s) => s.name === selected) || null;
+  const subNames = useMemo(
+    () => Object.fromEntries(subs.map((s) => [s.name, s.display_name || s.name])),
+    [subs]
+  );
   const matches = useMemo(
     () => (query
       ? subs.filter((s) => (s.display_name || s.name).toLowerCase().includes(query.toLowerCase())
@@ -70,7 +74,8 @@ export default function SteadyState() {
               <GridMap selected={selected} onSelect={setSelected} voltages={result?.substation_voltages} />
             </div>
           </div>
-          {result && <SystemPanel base={result.base} plant={result.with_plant} />}
+          {result && <SystemPanel base={result.base} plant={result.with_plant}
+            scenario={result.scenario} plantDispatch={result.plant_dispatch} />}
         </div>
 
         {/* Derecha: parámetros, ejecución, despacho */}
@@ -132,13 +137,14 @@ export default function SteadyState() {
               <h3>Barras vecinas al PCC — tensión antes / después</h3>
               <div className="grid2">
                 <NeighborTable rows={result.pcc_neighbors} />
-                <VoltageRadar neighbors={result.pcc_neighbors} />
+                <VoltageRadar neighbors={result.pcc_neighbors} subNames={subNames} />
               </div>
             </div>
           )}
-          {result.contingency && (
-            <ContingencyTable contingency={result.contingency} branches={result.with_plant?.branches} />
+          {result.short_circuit?.length > 0 && (
+            <ShortCircuitSection rows={result.short_circuit} subNames={subNames} />
           )}
+          {result.contingency && <ContingencyTable contingency={result.contingency} />}
         </>
       )}
     </>

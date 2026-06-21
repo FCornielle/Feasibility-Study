@@ -66,18 +66,20 @@ export function SeriesChart({ series }: { series: Series }) {
 
 interface Neighbor { bus: string; sub?: string | null; v_base: number | null; v_plant: number | null; }
 
-export function VoltageRadar({ neighbors }: { neighbors: Neighbor[] }) {
+export function VoltageRadar({ neighbors, subNames }: { neighbors: Neighbor[]; subNames?: Record<string, string> }) {
   const pts = neighbors.filter((n) => n.v_base != null && n.v_plant != null);
   if (pts.length < 3) return <div className="phase">Radar requiere ≥3 barras con tensión.</div>;
-  const labels = pts.map((n) => `${n.sub ?? ""} ${n.bus}`.trim().slice(0, 22));
+  const labels = pts.map((n) => (subNames?.[n.sub ?? ""] || n.sub || n.bus).slice(0, 18));
   const close = (a: (number | null)[]) => [...a, a[0]];
   return (
     <Plot
       data={[
         { type: "scatterpolar", r: close(pts.map((n) => n.v_base)), theta: [...labels, labels[0]],
-          fill: "toself", name: "sin planta", line: { color: "#8aa0b4" }, fillcolor: "rgba(138,160,180,.15)" },
+          name: "sin planta", mode: "lines+markers", line: { color: "#f1c40f", dash: "dash", width: 2 },
+          marker: { size: 6, color: "#f1c40f" } },
         { type: "scatterpolar", r: close(pts.map((n) => n.v_plant)), theta: [...labels, labels[0]],
-          fill: "toself", name: "con planta", line: { color: "#2e86ff" }, fillcolor: "rgba(46,134,255,.2)" },
+          fill: "toself", name: "con planta", mode: "lines+markers", line: { color: "#2e86ff", width: 2 },
+          marker: { size: 5, color: "#2e86ff" }, fillcolor: "rgba(46,134,255,.12)" },
       ]}
       layout={{
         ...DARK, height: 380,
@@ -94,8 +96,9 @@ export function VoltageRadar({ neighbors }: { neighbors: Neighbor[] }) {
   );
 }
 
-export function LoadingChart({ branches }: { branches: Branch[] }) {
-  const top = [...branches].sort((a, b) => b.loading_pct - a.loading_pct).slice(0, 15).reverse();
+export function LoadingChart({ branches, title }: { branches: Branch[]; title?: string }) {
+  const top = [...branches].filter((b) => b.loading_pct != null)
+    .sort((a, b) => b.loading_pct - a.loading_pct).slice(0, 15).reverse();
   return (
     <Plot
       data={[
@@ -103,10 +106,34 @@ export function LoadingChart({ branches }: { branches: Branch[] }) {
           marker: { color: top.map((b) => (b.loading_pct > 100 ? "#e74c3c" : "#2ecc71")) } },
       ]}
       layout={{
-        ...DARK, height: 320, title: "Cargabilidad — top 15 ramas (%)",
-        margin: { l: 160, r: 15, t: 30, b: 40 },
+        ...DARK, height: Math.max(280, top.length * 22 + 60),
+        title: title ?? "Cargabilidad de ramas (%)",
+        margin: { l: 240, r: 15, t: 34, b: 40 },
+        yaxis: { automargin: true, tickfont: { size: 10 } },
         shapes: [{ type: "line", x0: 100, x1: 100, y0: -0.5, y1: top.length - 0.5, line: { color: "#f1c40f", dash: "dot", width: 1 } }],
         xaxis: { title: "% del límite" },
+      }}
+      config={{ displayModeBar: false, responsive: true }}
+      style={{ width: "100%" }}
+    />
+  );
+}
+
+interface ScRow { bus: string; sub?: string | null; ikss_base: number | null; ikss_plant: number | null; }
+export function ShortCircuitChart({ rows, subNames }: { rows: ScRow[]; subNames?: Record<string, string> }) {
+  const r = rows.filter((x) => x.ikss_base != null || x.ikss_plant != null);
+  if (!r.length) return null;
+  const labels = r.map((x) => (subNames?.[x.sub ?? ""] || x.sub || x.bus).slice(0, 16));
+  return (
+    <Plot
+      data={[
+        { x: labels, y: r.map((x) => x.ikss_base), type: "bar", name: "sin planta", marker: { color: "#8aa0b4" } },
+        { x: labels, y: r.map((x) => x.ikss_plant), type: "bar", name: "con planta", marker: { color: "#2e86ff" } },
+      ]}
+      layout={{
+        ...DARK, height: 320, barmode: "group", title: "Ikss en barras seleccionadas [kA] — con vs sin planta",
+        legend: { orientation: "h", y: 1.15 }, xaxis: { tickangle: -35, tickfont: { size: 9 } },
+        yaxis: { title: "Ikss [kA]" }, margin: { l: 45, r: 15, t: 40, b: 90 },
       }}
       config={{ displayModeBar: false, responsive: true }}
       style={{ width: "100%" }}

@@ -1,7 +1,8 @@
 "use client";
-import { LoadingChart } from "@/components/Charts";
+import { LoadingChart, ShortCircuitChart } from "@/components/Charts";
 
-export function SystemPanel({ base, plant }: { base: any; plant: any }) {
+export function SystemPanel({ base, plant, scenario, plantDispatch }:
+  { base: any; plant: any; scenario?: any; plantDispatch?: any }) {
   if (!plant?.system) return null;
   const b = base?.system, p = plant.system;
   const Item = ({ l, v, u, d }: { l: string; v: number; u: string; d?: number }) => (
@@ -10,9 +11,20 @@ export function SystemPanel({ base, plant }: { base: any; plant: any }) {
       <div className="l">{l}{d != null && Math.abs(d) >= 0.05 ? ` (Δ ${d > 0 ? "+" : ""}${d.toFixed(1)})` : ""}</div>
     </div>
   );
+  const hh = scenario?.hour;
   return (
     <div className="card">
       <h3>Balance del sistema (flujo con planta)</h3>
+      {scenario?.name && (
+        <div className="selected" style={{ marginBottom: 10 }}>
+          Escenario de operación: <b>{scenario.name}</b>
+          {hh != null && <> · hora <b>{String(hh).padStart(2, "0")}:00</b></>}
+          {plantDispatch && (
+            <> · planta: PV <b>{plantDispatch.pv_out_mw} MW</b>, BESS <b>{plantDispatch.bess_out_mw} MW</b>
+              {plantDispatch.bess_out_mw < 0 ? " (carga)" : plantDispatch.bess_out_mw > 0 ? " (descarga)" : ""}</>
+          )}
+        </div>
+      )}
       <div className="kpi">
         <Item l="Demanda" v={p.demand_mw} u="MW" />
         <Item l="Generación" v={p.generation_mw} u="MW" d={b ? p.generation_mw - b.generation_mw : undefined} />
@@ -21,8 +33,40 @@ export function SystemPanel({ base, plant }: { base: any; plant: any }) {
         <Item l="Q generación" v={p.generation_mvar} u="Mvar" d={b ? p.generation_mvar - b.generation_mvar : undefined} />
       </div>
       <p className="phase" style={{ marginTop: 10 }}>
-        Metodología: flujo de carga IEC, comparación <b>con vs sin planta</b> (veredicto por delta),
-        confiabilidad <b>N-1</b> en circuitos de evacuación y <b>cortocircuito</b> (IEC 60909) en el PCC.
+        Metodología: flujo de carga IEC en el escenario horario del OC, comparación <b>con vs sin planta</b>
+        (veredicto por delta), confiabilidad <b>N-1</b> y <b>cortocircuito</b> (IEC 60909).
+      </p>
+    </div>
+  );
+}
+
+export function ShortCircuitSection({ rows, subNames }: { rows: any[]; subNames?: Record<string, string> }) {
+  if (!rows?.length) return null;
+  return (
+    <div className="card">
+      <h3>Cortocircuito (Ikss 3φ) — PCC y barras aledañas, con / sin planta</h3>
+      <div className="grid2">
+        <table className="compliance">
+          <thead>
+            <tr><td>Barra</td><td>grado</td><td style={{ textAlign: "right" }}>sin [kA]</td>
+              <td style={{ textAlign: "right" }}>con [kA]</td></tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} style={{ fontWeight: r.degree === 0 ? 700 : 400 }}>
+                <td>{r.degree === 0 ? "★ " : ""}{subNames?.[r.sub] || r.sub} · {r.kv} kV</td>
+                <td><span className={r.degree === 1 ? "deg1" : r.degree === 2 ? "deg2" : ""}>{r.degree === 0 ? "PCC" : r.degree + "º"}</span></td>
+                <td style={{ textAlign: "right" }}>{r.ikss_base ?? "—"}</td>
+                <td style={{ textAlign: "right" }}>{r.ikss_plant ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <ShortCircuitChart rows={rows} subNames={subNames} />
+      </div>
+      <p className="phase" style={{ marginTop: 6 }}>
+        Verifica que el aporte de la nueva planta no lleve la corriente de falla por encima de la capacidad
+        de ruptura de los equipos. ★ PCC · 1º/2º = barras de 1.er y 2.º grado de conexión.
       </p>
     </div>
   );
@@ -56,13 +100,15 @@ export function DispatchPanel({ dispatch }: { dispatch: any }) {
   );
 }
 
-export function ContingencyTable({ contingency, branches }: { contingency: any; branches?: any[] }) {
+export function ContingencyTable({ contingency }: { contingency: any }) {
   if (!contingency?.lines?.length) return null;
   const { lines, contingencies, matrix, base_loading, worst_loading_pct } = contingency;
+  // Cargabilidad de las LÍNEAS LOCALES (no del sistema entero) para el gráfico de barras.
+  const localBars = lines.map((l: any, i: number) => ({ elem: l.name, loading_pct: base_loading[i] }));
   return (
     <div className="card">
       <h3>Análisis de Contingencia (N-1) — peor carga {worst_loading_pct}%</h3>
-      {branches && branches.length > 0 && <LoadingChart branches={branches} />}
+      <LoadingChart branches={localBars} title="Cargabilidad de líneas locales (%)" />
       <div className="ctab-wrap">
         <table className="ctab">
           <thead>

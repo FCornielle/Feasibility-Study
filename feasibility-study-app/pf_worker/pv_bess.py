@@ -9,6 +9,25 @@ Todo se crea vía `sb.create(...)` para que el sandbox lo rastree y lo borre en 
 from __future__ import annotations
 
 
+import math
+
+
+def solar_factor(hour: int) -> float:
+    """Factor 0..1 de generación PV por hora (campana de cielo claro, pico ~13h; 0 de noche)."""
+    h = hour % 24
+    return max(0.0, math.sin(math.pi * (h - 6) / 12)) if 6 <= h <= 18 else 0.0
+
+
+def bess_factor(hour: int) -> float:
+    """Factor del BESS por hora: -1 carga (mediodía, 10-15h), +1 descarga (punta nocturna, 18-23h)."""
+    h = hour % 24
+    if 10 <= h <= 15:
+        return -1.0
+    if 18 <= h <= 23:
+        return 1.0
+    return 0.0
+
+
 def grid_of(term):
     """ElmNet que contiene al terminal (subiendo por los padres)."""
     o = term
@@ -59,36 +78,46 @@ def pick_pcc(app, sub, energized: bool = False):
 
 
 def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
-                  bess_mode: str = "discharge"):
-    """Crea PV + BESS conectados a la barra `pcc` (ya seleccionada). Devuelve objetos y metadatos.
+                  bess_mode: str = "discharge", hour: int | None = None):
+    """Crea PV + BESS conectados a la barra `pcc`. Devuelve objetos y metadatos.
 
-    bess_mode: 'discharge' (entrega potencia, horas de punta) o 'charge' (absorbe, mediodía).
+    Si se da `hour` (la hora del escenario de operación), la salida sigue la regulación: el PV
+    genera según el sol y el BESS **carga al mediodía / descarga en la noche** (no inyectan a la
+    vez). Si no, se usa `bess_mode` (descarga/carga) con PV a plena potencia.
     """
     grid = grid_of(pcc)
     if grid is None:
         raise RuntimeError(f"No se pudo resolver el ElmNet del PCC '{pcc.loc_name}'.")
+
+    if hour is not None:
+        pv_out = round(pv_mw * solar_factor(hour), 3)
+        bess_out = round(bess_mw * bess_factor(hour), 3)   # (-) carga, (+) descarga
+    else:
+        pv_out = pv_mw
+        bess_out = bess_mw if bess_mode == "discharge" else -bess_mw
 
     # --- PV (generador estático fotovoltaico) ---
     cub_pv = sb.create(pcc, "StaCubic", "Cub_PV")
     pv = sb.create(grid, "ElmGenstat", "PV")
     pv.SetAttribute("bus1", cub_pv)
     pv.SetAttribute("cCategory", "Photovoltaic")
-    pv.SetAttribute("sgn", max(pv_mw, 0.1))   # MVA nominal (~unidad de pf)
-    pv.SetAttribute("pgini", pv_mw)            # MW
+    pv.SetAttribute("sgn", max(pv_mw, 0.1))   # MVA nominal (placa)
+    pv.SetAttribute("pgini", pv_out)          # MW despachados a esta hora
     pv.SetAttribute("qgini", 0.0)
-    pv.SetAttribute("av_mode", "constq")       # PQ (control de tensión/reactivo = refinamiento Etapa posterior)
+    pv.SetAttribute("av_mode", "constq")
+    pv.SetAttribute("Kfactor", 1.2)            # aporte a cortocircuito (~1.2x corriente nominal, inversor)
     pv.SetAttribute("outserv", 0)
 
     # --- BESS (generador estático, categoría almacenamiento) ---
-    p_bess = bess_mw if bess_mode == "discharge" else -bess_mw
     cub_b = sb.create(pcc, "StaCubic", "Cub_BESS")
     bess = sb.create(grid, "ElmGenstat", "BESS")
     bess.SetAttribute("bus1", cub_b)
     bess.SetAttribute("cCategory", "Storage")
     bess.SetAttribute("sgn", max(bess_mw, 0.1))
-    bess.SetAttribute("pgini", p_bess)
+    bess.SetAttribute("pgini", bess_out)
     bess.SetAttribute("qgini", 0.0)
     bess.SetAttribute("av_mode", "constq")
+    bess.SetAttribute("Kfactor", 1.2)
     bess.SetAttribute("outserv", 0)
 
     return {
@@ -98,5 +127,6 @@ def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
         "grid": grid.loc_name,
         "pv": pv,
         "bess": bess,
-        "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode},
+        "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode,
+                   "hour": hour, "pv_out_mw": pv_out, "bess_out_mw": bess_out},
     }

@@ -9,6 +9,7 @@ queda idéntico al terminar.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 
@@ -298,6 +299,44 @@ def _contingency_matrix(app, sub, max_lines: int = 14) -> dict:
             "worst_loading_pct": round(worst, 1) if worst is not None else None}
 
 
+def _sc_buses(app, sub, limit: int = 8):
+    """Una barra representativa por subestación vecina (1.er y 2.º grado) para el cortocircuito."""
+    first, second = _local_lines(app, sub)
+    by_sub = {}  # sub_name -> (term, degree)
+
+    def consider(ln, degree):
+        for t in _line_terms(app, ln):
+            ss = t.GetAttribute("cpSubstat")
+            if ss is None or ss.loc_name == sub.loc_name:
+                continue
+            cur = by_sub.get(ss.loc_name)
+            if cur is None or degree < cur[1] or (degree == cur[1] and t.GetAttribute("uknom") > cur[0].GetAttribute("uknom")):
+                by_sub[ss.loc_name] = (t, degree)
+
+    for ln in first:
+        consider(ln, 1)
+    for ln in second:
+        consider(ln, 2)
+    items = sorted(by_sub.items(), key=lambda kv: (kv[1][1], -kv[1][0].GetAttribute("uknom")))[:limit]
+    return [(t, deg, name) for name, (t, deg) in items]
+
+
+def _ikss_at(app, terms):
+    """Ikss 3φ (kA) en cada terminal (IEC 60909). Devuelve {fullname: ikss}."""
+    shc = app.GetFromStudyCase("ComShc")
+    out = {}
+    for t in terms:
+        try:
+            shc.SetAttribute("iopt_mde", 0)
+            shc.SetAttribute("iopt_allbus", 0)
+            shc.SetAttribute("iopt_shc", "3psc")
+            shc.SetAttribute("shcobj", t)
+            out[t.GetFullName()] = round(_attr(t, "m:Ikss") or 0.0, 3) if shc.Execute() == 0 else None
+        except Exception:
+            out[t.GetFullName()] = None
+    return out
+
+
 def _evacuation_lines(app, sub):
     """Líneas conectadas a las barras de la subestación (circuitos de evacuación)."""
     term_names = {t.GetFullName() for t in pv_bess.substation_terminals(app, sub)}
@@ -332,6 +371,12 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         data["base"]["system"] = _system_totals(app)
         sv_base = _substation_voltages(app)
 
+        # Escenario de operación activo (P01..P24 = la hora del flujo de carga)
+        scen = app.GetActiveScenario()
+        sname = scen.loc_name if scen is not None else None
+        hour = int(re.sub(r"\D", "", sname)) if sname and re.search(r"\d", sname) else None
+        data["scenario"] = {"name": sname, "hour": hour}
+
         # PCC = barra de mayor tensión ENERGIZADA de la subestación (evita barras muertas/spare)
         pcc = pv_bess.pick_pcc(app, sub, energized=True)
         data["pcc"] = {"name": pcc.loc_name, "kv": round(pcc.GetAttribute("uknom"), 1)}
@@ -345,9 +390,17 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
                                         _attr(t, "m:u"), ss.loc_name if ss else None)
         pcc_v_base = _attr(pcc, "m:u")
 
-        # 2) Con planta PV+BESS
-        report("modelando PV+BESS y flujo con planta", 35)
-        plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
+        # Cortocircuito SIN planta en el PCC + barras aledañas (1.er/2.º grado)
+        report("cortocircuito (sin planta)", 30)
+        sc_buses = [(pcc, 0, sub_name)] + _sc_buses(app, sub)
+        sc_terms = [t for t, _, _ in sc_buses]
+        ikss_base = _ikss_at(app, sc_terms)
+
+        # 2) Con planta PV+BESS (despacho coherente con la hora del escenario)
+        report("modelando PV+BESS y flujo con planta", 45)
+        plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode, hour=hour)
+        data["plant_dispatch"] = {"pv_out_mw": plant["params"]["pv_out_mw"],
+                                  "bess_out_mw": plant["params"]["bess_out_mw"], "hour": hour}
         if _run_ldf(app) != 0:
             raise RuntimeError("El flujo de carga con planta no convergió.")
         data["with_plant"] = _capture(app)
@@ -370,9 +423,18 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
                          "v_plant": _vu(t)})
         data["pcc_neighbors"] = rows
 
-        # 3) Cortocircuito en el PCC (con planta)
-        report("cortocircuito en el PCC", 55)
-        data["short_circuit_with_plant"] = _short_circuit(app, plant["pcc"])
+        # 3) Cortocircuito CON planta en las mismas barras -> sección comparativa con/sin planta
+        report("cortocircuito (con planta)", 55)
+        ikss_plant = _ikss_at(app, sc_terms)
+        sc_rows = []
+        for t, deg, sname2 in sc_buses:
+            fn = t.GetFullName()
+            sc_rows.append({"bus": t.loc_name, "sub": sname2, "degree": deg,
+                            "kv": round(t.GetAttribute("uknom"), 1),
+                            "ikss_base": ikss_base.get(fn), "ikss_plant": ikss_plant.get(fn)})
+        data["short_circuit"] = sc_rows
+        pcc_ik = ikss_plant.get(pcc.GetFullName())
+        data["short_circuit_with_plant"] = {"ikss_3ph_ka": pcc_ik}
 
         # 4) Análisis de contingencia (N-1) sobre las líneas locales (1.er y 2.º grado)
         report("análisis de contingencia (N-1)", 70)
