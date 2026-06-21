@@ -8,14 +8,18 @@ import { DYNAMIC_TABS, TABS } from "@/lib/tabs";
 
 export default function Page() {
   const [tab, setTab] = useState("steady");
+  const [navOpen, setNavOpen] = useState(true);
   const current = TABS.find((t) => t.id === tab)!;
 
   return (
-    <div className="app">
-      <Sidebar active={tab} onSelect={setTab} />
+    <div className={`app ${navOpen ? "" : "nav-collapsed"}`}>
+      <Sidebar active={tab} onSelect={(id) => setTab(id)} />
       <div className="content">
         <div className="topbar">
-          <h2>{current.label}</h2>
+          <div className="topbar-row">
+            <button className="nav-toggle" onClick={() => setNavOpen((o) => !o)} title="Mostrar/ocultar menú">☰</button>
+            <h2>{current.label}</h2>
+          </div>
           <p>
             {current.stub
               ? "Pestaña en construcción"

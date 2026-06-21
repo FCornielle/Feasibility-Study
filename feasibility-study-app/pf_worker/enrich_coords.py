@@ -88,6 +88,8 @@ def add_display_names(results_dir: str = RESULTS_DIR) -> int:
     with open(subs_path, "w", encoding="utf-8") as f:
         json.dump(subs, f, ensure_ascii=False, indent=2)
 
+    # El geojson usa el MISMO nombre final de substations.json (modelo + respaldo modom) -> consistencia.
+    name_map = {s["name"]: s.get("display_name") or s["name"] for s in subs}
     geo_path = os.path.join(results_dir, "grid_map.geojson")
     if os.path.exists(geo_path):
         with open(geo_path, encoding="utf-8") as f:
@@ -95,7 +97,7 @@ def add_display_names(results_dir: str = RESULTS_DIR) -> int:
         for ft in fc["features"]:
             if ft["properties"].get("kind") == "substation":
                 code = ft["properties"]["name"]
-                ft["properties"]["display_name"] = disp.get(code, code)
+                ft["properties"]["display_name"] = name_map.get(code, code)
         with open(geo_path, "w", encoding="utf-8") as f:
             json.dump(fc, f, ensure_ascii=False)
     return n

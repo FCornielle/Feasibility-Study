@@ -80,8 +80,11 @@ export function VoltageRadar({ neighbors }: { neighbors: Neighbor[] }) {
           fill: "toself", name: "con planta", line: { color: "#2e86ff" }, fillcolor: "rgba(46,134,255,.2)" },
       ]}
       layout={{
-        ...DARK, height: 360,
-        polar: { radialaxis: { tickfont: { size: 9 }, angle: 90 }, bgcolor: "rgba(0,0,0,0)" },
+        ...DARK, height: 380,
+        polar: {
+          radialaxis: { range: [0.85, 1.1], tickfont: { size: 9 }, angle: 90, tickformat: ".2f" },
+          bgcolor: "rgba(0,0,0,0)",
+        },
         legend: { orientation: "h", y: 1.12 },
         title: "Tensión de barras vecinas (pu) — con vs sin planta",
       }}

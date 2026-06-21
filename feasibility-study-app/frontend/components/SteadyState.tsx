@@ -21,7 +21,6 @@ export default function SteadyState() {
   const [job, setJob] = useState<RunJob | null>(null);
   const [result, setResult] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [open, setOpen] = useState(false); // cajón de resultados
 
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
 
@@ -43,25 +42,16 @@ export default function SteadyState() {
       setJob(created);
       const close = watchRun(created.run_id, (j) => {
         setJob(j);
-        if (j.status === "done") {
-          getResult(j.run_id).then((r) => { setResult(r); setOpen(true); }).catch(() => {});
-          close();
-        }
+        if (j.status === "done") { getResult(j.run_id).then(setResult).catch(() => {}); close(); }
         if (j.status === "error") close();
       });
     } catch (e) { setErr(String(e)); }
   }
 
   return (
-    <div className="ss-wrap">
-      {result && (
-        <button className="drawer-toggle" onClick={() => setOpen((o) => !o)} title="Resultados">
-          ☰ Resultados {result.compliance?.overall && <span className={`badge ${result.compliance.overall === "PASA" ? "pasa" : "falla"}`}>{result.compliance.overall}</span>}
-        </button>
-      )}
-
+    <>
       <div className="grid2">
-        {/* Izquierda: mapa */}
+        {/* Izquierda: mapa + balance */}
         <div>
           <div className="card">
             <h3>Subestación (clic en el mapa o busca)</h3>
@@ -83,7 +73,7 @@ export default function SteadyState() {
           {result && <SystemPanel base={result.base} plant={result.with_plant} />}
         </div>
 
-        {/* Derecha: parámetros y ejecución */}
+        {/* Derecha: parámetros, ejecución, despacho */}
         <div>
           <div className="card">
             <h3>Planta a interconectar</h3>
@@ -123,43 +113,34 @@ export default function SteadyState() {
         </div>
       </div>
 
-      {/* Franja para reabrir el cajón */}
-      {result && !open && (
-        <button className="drawer-handle" onClick={() => setOpen(true)}>◂ Resultados</button>
-      )}
-
-      {/* Cajón de resultados (desplegable) */}
-      <aside className={`drawer ${open ? "open" : ""}`}>
-        <div className="drawer-head">
-          <b>Resultados — {result?.pcc?.name} ({result?.pcc?.kv} kV)</b>
-          <button className="drawer-x" onClick={() => setOpen(false)}>✕</button>
-        </div>
-        {result && (
-          <div className="drawer-body">
-            <div className="card">
-              <h3>Cumplimiento (Código de Conexión)</h3>
-              <ComplianceTable compliance={result.compliance} />
-              <div className="kpi" style={{ marginTop: 12 }}>
-                <div className="item"><div className="v">{result.pcc?.kv} kV</div><div className="l">PCC {result.pcc?.name}</div></div>
-                <div className="item"><div className="v">{result.short_circuit_with_plant?.ikss_3ph_ka ?? "—"} kA</div><div className="l">Ikss 3φ</div></div>
-                <div className="item"><div className="v">{result.delta?.new_voltage_violations?.length ?? 0}</div><div className="l">nuevas viol. V</div></div>
-                <div className="item"><div className="v">{result.delta?.new_overloads?.length ?? 0}</div><div className="l">nuevas sobrecargas</div></div>
-                <div className="item"><div className="v">{result.delta?.max_loading_increase_pct}%</div><div className="l">Δ carga máx</div></div>
-              </div>
+      {/* Resultados a ancho completo (la matriz de contingencia necesita espacio) */}
+      {result && (
+        <>
+          <div className="card">
+            <h3>Cumplimiento (Código de Conexión)</h3>
+            <ComplianceTable compliance={result.compliance} />
+            <div className="kpi" style={{ marginTop: 12 }}>
+              <div className="item"><div className="v">{result.pcc?.kv} kV</div><div className="l">PCC {result.pcc?.name}</div></div>
+              <div className="item"><div className="v">{result.short_circuit_with_plant?.ikss_3ph_ka ?? "—"} kA</div><div className="l">Ikss 3φ</div></div>
+              <div className="item"><div className="v">{result.delta?.new_voltage_violations?.length ?? 0}</div><div className="l">nuevas viol. V</div></div>
+              <div className="item"><div className="v">{result.delta?.new_overloads?.length ?? 0}</div><div className="l">nuevas sobrecargas</div></div>
+              <div className="item"><div className="v">{result.delta?.max_loading_increase_pct}%</div><div className="l">Δ carga máx</div></div>
             </div>
-            {result.pcc_neighbors?.length > 0 && (
-              <div className="card">
-                <h3>Barras vecinas al PCC — tensión antes / después</h3>
+          </div>
+          {result.pcc_neighbors?.length > 0 && (
+            <div className="card">
+              <h3>Barras vecinas al PCC — tensión antes / después</h3>
+              <div className="grid2">
                 <NeighborTable rows={result.pcc_neighbors} />
                 <VoltageRadar neighbors={result.pcc_neighbors} />
               </div>
-            )}
-            {result.contingency && (
-              <ContingencyTable contingency={result.contingency} branches={result.with_plant?.branches} />
-            )}
-          </div>
-        )}
-      </aside>
-    </div>
+            </div>
+          )}
+          {result.contingency && (
+            <ContingencyTable contingency={result.contingency} branches={result.with_plant?.branches} />
+          )}
+        </>
+      )}
+    </>
   );
 }
