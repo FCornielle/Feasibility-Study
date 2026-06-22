@@ -30,17 +30,40 @@ PORT = int(os.environ.get("APP_PORT", "8000"))
 
 
 # --------------------------------------------------------------------------- roles secundarios
+def _ensure_streams(name: str):
+    """En el .exe 'windowed' sys.stdout/stderr son None -> uvicorn (isatty) y print() fallan.
+    Redirige a un archivo de log en la carpeta escribible para que existan (y queden para diagnóstico)."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    try:
+        import paths
+        logdir = paths.RESULTS_DIR
+    except Exception:
+        logdir = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "results")
+    try:
+        os.makedirs(logdir, exist_ok=True)
+        f = open(os.path.join(logdir, f"_{name}.log"), "a", buffering=1, encoding="utf-8", errors="replace")
+    except Exception:
+        f = open(os.devnull, "w")
+    if sys.stdout is None:
+        sys.stdout = f
+    if sys.stderr is None:
+        sys.stderr = f
+
+
 def role_worker():
+    _ensure_streams("worker")
     import worker  # pf_worker/worker.py (usa PF_VERSION/PF_PROJECT del entorno)
     worker.main()
 
 
 def role_backend():
     """Corre el backend FastAPI en su PROPIO proceso (evita problemas de hilos/señales del .exe)."""
+    _ensure_streams("backend")
     import uvicorn
     from app.main import app as backend_app  # backend/app/main.py
     port = int(os.environ.get("APP_PORT", str(PORT)))
-    uvicorn.run(backend_app, host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(backend_app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
 
 
 def role_probe():
