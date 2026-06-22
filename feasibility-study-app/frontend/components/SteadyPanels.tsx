@@ -42,31 +42,44 @@ export function SystemPanel({ base, plant, scenario, plantDispatch }:
 
 export function ShortCircuitSection({ rows, subNames }: { rows: any[]; subNames?: Record<string, string> }) {
   if (!rows?.length) return null;
+  const R = ({ children }: { children: any }) => <td style={{ textAlign: "right" }}>{children}</td>;
   return (
     <div className="card">
-      <h3>Cortocircuito (Ikss 3φ) — PCC y barras aledañas, con / sin planta</h3>
-      <div className="grid2">
-        <table className="compliance">
-          <thead>
-            <tr><td>Barra</td><td>grado</td><td style={{ textAlign: "right" }}>sin [kA]</td>
-              <td style={{ textAlign: "right" }}>con [kA]</td></tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} style={{ fontWeight: r.degree === 0 ? 700 : 400 }}>
-                <td>{r.degree === 0 ? "★ " : ""}{subNames?.[r.sub] || r.sub} · {r.kv} kV</td>
-                <td><span className={r.degree === 1 ? "deg1" : r.degree === 2 ? "deg2" : ""}>{r.degree === 0 ? "PCC" : r.degree + "º"}</span></td>
-                <td style={{ textAlign: "right" }}>{r.ikss_base ?? "—"}</td>
-                <td style={{ textAlign: "right" }}>{r.ikss_plant ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <ShortCircuitChart rows={rows} subNames={subNames} />
-      </div>
+      <h3>Cortocircuito IEC 60909 — PCC y barras aledañas, con / sin planta</h3>
+      <table className="compliance" style={{ fontSize: 13 }}>
+        <thead>
+          <tr>
+            <td>Barra</td><td>grado</td>
+            <td style={{ textAlign: "right" }}>Ikss 3φ sin [kA]</td>
+            <td style={{ textAlign: "right" }}>Ikss 3φ con [kA]</td>
+            <td style={{ textAlign: "right" }}>Δ aporte [kA]</td>
+            <td style={{ textAlign: "right" }}>Sk″ [MVA]</td>
+            <td style={{ textAlign: "right" }}>ip pico [kA]</td>
+            <td style={{ textAlign: "right" }}>Ikss 1φ [kA]</td>
+            <td style={{ textAlign: "right" }}>X/R</td>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} style={{ fontWeight: r.degree === 0 ? 700 : 400 }}>
+              <td>{r.degree === 0 ? "★ " : ""}{subNames?.[r.sub] || r.sub} · {r.kv} kV</td>
+              <td><span className={r.degree === 1 ? "deg1" : r.degree === 2 ? "deg2" : ""}>{r.degree === 0 ? "PCC" : r.degree + "º"}</span></td>
+              <R>{r.ikss_base ?? "—"}</R>
+              <R>{r.ikss_plant ?? "—"}</R>
+              <R><span style={{ color: r.delta ? "var(--warn)" : "var(--muted)" }}>{r.delta != null ? (r.delta >= 0 ? "+" : "") + r.delta : "—"}</span></R>
+              <R>{r.skss_mva ?? "—"}</R>
+              <R>{r.ip_ka ?? "—"}</R>
+              <R>{r.ikss_1ph ?? "—"}</R>
+              <R>{r.xr ?? "—"}</R>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ marginTop: 12 }}><ShortCircuitChart rows={rows} subNames={subNames} /></div>
       <p className="phase" style={{ marginTop: 6 }}>
-        Verifica que el aporte de la nueva planta no lleve la corriente de falla por encima de la capacidad
-        de ruptura de los equipos. ★ PCC · 1º/2º = barras de 1.er y 2.º grado de conexión.
+        Ikss″ = corriente inicial de cortocircuito; Sk″ = potencia de cortocircuito; ip = corriente pico;
+        Δ aporte = aumento que introduce la planta. Verifica que la corriente de falla (3φ y 1φ) no supere la
+        capacidad de ruptura de los interruptores. ★ PCC · 1º/2º = barras de 1.er y 2.º grado de conexión.
       </p>
     </div>
   );

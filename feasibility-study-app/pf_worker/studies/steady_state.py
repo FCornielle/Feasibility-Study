@@ -321,19 +321,42 @@ def _sc_buses(app, sub, limit: int = 8):
     return [(t, deg, name) for name, (t, deg) in items]
 
 
-def _ikss_at(app, terms):
-    """Ikss 3φ (kA) en cada terminal (IEC 60909). Devuelve {fullname: ikss}."""
+def _sc_metrics_at(app, terms):
+    """Métricas de cortocircuito IEC 60909 por terminal:
+    Ikss 3φ y 1φ (kA), Sk" (MVA), corriente pico ip (kA) y relación X/R. Devuelve {fullname: {...}}."""
+    def _r(v, n=3):
+        return round(v, n) if isinstance(v, (int, float)) and v else None
+
     shc = app.GetFromStudyCase("ComShc")
     out = {}
     for t in terms:
+        m = {"ikss_3ph": None, "skss_mva": None, "ip_3ph": None, "ikss_1ph": None, "xr": None}
         try:
             shc.SetAttribute("iopt_mde", 0)
             shc.SetAttribute("iopt_allbus", 0)
             shc.SetAttribute("iopt_shc", "3psc")
             shc.SetAttribute("shcobj", t)
-            out[t.GetFullName()] = round(_attr(t, "m:Ikss") or 0.0, 3) if shc.Execute() == 0 else None
+            if shc.Execute() == 0:
+                m["ikss_3ph"] = _r(_attr(t, "m:Ikss"))
+                m["skss_mva"] = _r(_attr(t, "m:Skss"), 1)
+                m["ip_3ph"] = _r(_attr(t, "m:ip"))
+                rtox = _attr(t, "m:rtox")          # R/X -> reportamos X/R = 1/(R/X)
+                if isinstance(rtox, (int, float)) and rtox > 1e-6:
+                    m["xr"] = round(1.0 / rtox, 2)
+                else:                              # fallback: X/R desde m:X y m:R
+                    rr, xx = _attr(t, "m:R"), _attr(t, "m:X")
+                    if isinstance(rr, (int, float)) and isinstance(xx, (int, float)) and abs(rr) > 1e-9:
+                        m["xr"] = round(abs(xx / rr), 2)
         except Exception:
-            out[t.GetFullName()] = None
+            pass
+        try:
+            shc.SetAttribute("iopt_shc", "spgf")   # falla monofásica a tierra (SLG)
+            shc.SetAttribute("shcobj", t)
+            if shc.Execute() == 0:
+                m["ikss_1ph"] = _r(_attr(t, "m:Ikss"))
+        except Exception:
+            pass
+        out[t.GetFullName()] = m
     return out
 
 
@@ -396,7 +419,7 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         report("cortocircuito (sin planta)", 30)
         sc_buses = [(pcc, 0, sub_name)] + _sc_buses(app, sub)
         sc_terms = [t for t, _, _ in sc_buses]
-        ikss_base = _ikss_at(app, sc_terms)
+        sc_base = _sc_metrics_at(app, sc_terms)
 
         # 2) Con planta PV+BESS (despacho coherente con la hora del escenario)
         report("modelando PV+BESS y flujo con planta", 45)
@@ -427,16 +450,23 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
 
         # 3) Cortocircuito CON planta en las mismas barras -> sección comparativa con/sin planta
         report("cortocircuito (con planta)", 55)
-        ikss_plant = _ikss_at(app, sc_terms)
+        sc_plant = _sc_metrics_at(app, sc_terms)
         sc_rows = []
         for t, deg, sname2 in sc_buses:
             fn = t.GetFullName()
+            b, p = sc_base.get(fn, {}), sc_plant.get(fn, {})
+            ik_b, ik_p = b.get("ikss_3ph"), p.get("ikss_3ph")
+            delta = round(ik_p - ik_b, 3) if (ik_b is not None and ik_p is not None) else None
             sc_rows.append({"bus": t.loc_name, "sub": sname2, "degree": deg,
                             "kv": round(t.GetAttribute("uknom"), 1),
-                            "ikss_base": ikss_base.get(fn), "ikss_plant": ikss_plant.get(fn)})
+                            "ikss_base": ik_b, "ikss_plant": ik_p, "delta": delta,
+                            "skss_mva": p.get("skss_mva"), "ip_ka": p.get("ip_3ph"),
+                            "ikss_1ph": p.get("ikss_1ph"), "xr": p.get("xr")})
         data["short_circuit"] = sc_rows
-        pcc_ik = ikss_plant.get(pcc.GetFullName())
-        data["short_circuit_with_plant"] = {"ikss_3ph_ka": pcc_ik}
+        pcc_p = sc_plant.get(pcc.GetFullName(), {})
+        data["short_circuit_with_plant"] = {
+            "ikss_3ph_ka": pcc_p.get("ikss_3ph"), "ikss_1ph_ka": pcc_p.get("ikss_1ph"),
+            "skss_mva": pcc_p.get("skss_mva"), "ip_ka": pcc_p.get("ip_3ph"), "xr": pcc_p.get("xr")}
 
         # 4) Análisis de contingencia (N-1) sobre las líneas locales (1.er y 2.º grado)
         report("análisis de contingencia (N-1)", 70)
