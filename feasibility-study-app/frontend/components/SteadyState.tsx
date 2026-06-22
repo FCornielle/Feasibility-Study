@@ -11,7 +11,7 @@ import { ContingencyTable, DispatchPanel, NeighborTable, ShortCircuitSection, Sy
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 
-const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge" };
+const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge", scale_loads: 1 };
 const HOURS = Array.from({ length: 24 }, (_, i) => {
   const n = String(i + 1).padStart(2, "0");
   return { value: `P${n}`, label: `P${n} — ${n}:00` };
@@ -106,6 +106,14 @@ export default function SteadyState() {
                   <option value="">Auto (escenario activo)</option>
                   {HOURS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
                 </select></div>
+            </div>
+            <div className="row">
+              <div><label>Factor de escala de demanda</label>
+                <input type="number" step="0.05" min="0.1" value={params.scale_loads ?? 1}
+                       onChange={(e) => setParams({ ...params, scale_loads: +e.target.value })} /></div>
+              <div style={{ display: "flex", alignItems: "flex-end" }}>
+                <span className="phase">Escala todas las cargas (excepto auxiliares de plantas). 1.0 = sin cambio.</span>
+              </div>
             </div>
             <button className="run" disabled={!selected || running} onClick={launch}>
               {running ? "Ejecutando…" : "Ejecutar Steady State"}

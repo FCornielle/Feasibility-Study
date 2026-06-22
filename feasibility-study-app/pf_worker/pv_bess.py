@@ -28,6 +28,41 @@ def bess_factor(hour: int) -> float:
     return 0.0
 
 
+_AUX_KEYS = ("aux", "auxiliar", "servicio propio", "serv propio", "ssaa", "ss aa", "s.a.", "propio")
+
+
+def _is_aux_load(load) -> bool:
+    """¿Es una carga de servicios auxiliares de una planta? (se excluye del escalado de demanda)."""
+    nm = (load.loc_name or "").lower()
+    return any(k in nm for k in _AUX_KEYS)
+
+
+def scale_loads(sb, app, factor: float):
+    """Aplica un factor de escala a TODAS las cargas en servicio EXCEPTO las auxiliares de plantas.
+    Revertible (vía sandbox). Devuelve {scaled, skipped_aux, factor}."""
+    if factor is None or abs(factor - 1.0) < 1e-6:
+        return {"scaled": 0, "skipped_aux": 0, "factor": 1.0}
+    scaled = skipped = 0
+    for ld in app.GetCalcRelevantObjects("*.ElmLod"):
+        try:
+            if ld.GetAttribute("outserv") != 0:
+                continue
+        except Exception:
+            continue
+        if _is_aux_load(ld):
+            skipped += 1
+            continue
+        for attr in ("plini", "qlini"):
+            try:
+                v = ld.GetAttribute(attr)
+                if v is not None:
+                    sb.set_attr(ld, attr, v * factor)
+            except Exception:
+                pass
+        scaled += 1
+    return {"scaled": scaled, "skipped_aux": skipped, "factor": factor}
+
+
 def grid_of(term):
     """ElmNet que contiene al terminal (subiendo por los padres)."""
     o = term

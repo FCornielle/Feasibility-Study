@@ -354,7 +354,8 @@ def _evacuation_lines(app, sub):
 
 # --------------------------------------------------------------------------- estudio
 def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
-        bess_mode: str = "discharge", run_id: str | None = None, progress=None) -> dict:
+        bess_mode: str = "discharge", scale_loads: float = 1.0,
+        run_id: str | None = None, progress=None) -> dict:
     run_id = run_id or time.strftime("%Y%m%d_%H%M%S")
     report = progress or (lambda phase, pct: None)
     data = {"study": "steady_state", "run_id": run_id, "substation": sub_name,
@@ -362,6 +363,7 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
 
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
+        data["load_scaling"] = pv_bess.scale_loads(sb, app, scale_loads)
 
         # 1) Caso base (sin planta) — necesario antes de elegir el PCC energizado
         report("flujo de carga base", 10)

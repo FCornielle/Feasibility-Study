@@ -125,7 +125,23 @@ export function LoadingChart({ branches, title }: { branches: Branch[]; title?: 
 }
 
 interface Mode { real: number; imag: number; freq_hz: number; damping_pct: number; }
+function ChartFailBox({ children }: { children: any }) {
+  return (
+    <div style={{
+      height: 340, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      gap: 8, border: "1px dashed var(--bad)", borderRadius: 8, background: "rgba(231,76,60,0.07)",
+      color: "var(--bad)", textAlign: "center", padding: 20,
+    }}>
+      <div style={{ fontSize: 30 }}>⚠</div>
+      <div style={{ fontWeight: 700 }}>Simulación sin datos</div>
+      <div style={{ color: "var(--text)", fontSize: 13, maxWidth: 420 }}>{children}</div>
+    </div>
+  );
+}
+
 export function EigenvalueChart({ sin, con }: { sin: Mode[]; con: Mode[] }) {
+  if (!sin.length && !con.length)
+    return <ChartFailBox>No se extrajeron modos: el RMS no convergió o no se monitorearon generadores. Prueba otra hora (nocturna) o revisa que el escenario sea válido.</ChartFailBox>;
   return (
     <Plot
       data={[
@@ -148,7 +164,8 @@ export function EigenvalueChart({ sin, con }: { sin: Mode[]; con: Mode[] }) {
 }
 
 export function SpeedChart({ series, title }: { series: any; title?: string }) {
-  if (!series?.traces?.length) return <div className="phase">Sin datos de velocidad.</div>;
+  if (!series?.traces?.length)
+    return <ChartFailBox>Sin datos de velocidad: el RMS no produjo resultados (no convergió o sin generadores monitoreados).</ChartFailBox>;
   return (
     <Plot
       data={series.traces.map((tr: any) => ({

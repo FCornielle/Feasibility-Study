@@ -223,13 +223,35 @@ def distant_generators(app, pcc, n: int = 6):
     # Muestreo de "punto más lejano" (farthest-point sampling) sembrado en el PCC: elige extremos en
     # DIRECCIONES distintas (sur/norte/este), no el cúmulo de plantas más alejado en una sola zona.
     cands = list(by_sub.values())
-    anchors = [p]
+    anchors = [p] if p else []
     chosen = []
-    while cands and len(chosen) < n:
+    while cands and anchors and len(chosen) < n:
         g, s = max(cands, key=lambda c: min((c[0][0] - a[0]) ** 2 + (c[0][1] - a[1]) ** 2 for a in anchors))
         chosen.append(s)
         anchors.append(g)
         cands.remove((g, s))
+
+    # Respaldo (sin coordenadas disponibles, p.ej. el .exe sin refdata): completar con los mayores
+    # generadores síncronos en servicio, uno por subestación, para SIEMPRE tener señales que monitorear.
+    if len(chosen) < n:
+        chosen_subs = {(s.GetAttribute("bus1").GetAttribute("cterm").GetAttribute("cpSubstat")
+                        if s.GetAttribute("bus1") else None) for s in chosen}
+        extra = {}
+        for s in app.GetCalcRelevantObjects("*.ElmSym"):
+            if s.GetAttribute("outserv") != 0 or s in chosen:
+                continue
+            cub = s.GetAttribute("bus1")
+            term = cub.GetAttribute("cterm") if cub is not None else None
+            ss = term.GetAttribute("cpSubstat") if term is not None else None
+            if ss in chosen_subs:
+                continue
+            cur = extra.get(ss)
+            if cur is None or _gen_rating(s) > _gen_rating(cur):
+                extra[ss] = s
+        for s in sorted(extra.values(), key=_gen_rating, reverse=True):
+            if len(chosen) >= n:
+                break
+            chosen.append(s)
     return chosen
 
 

@@ -7,7 +7,7 @@ import { EigenvalueChart, SpeedChart } from "@/components/Charts";
 import { HOURS } from "@/lib/tabs";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
-const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge" };
+const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge", scale_loads: 1 };
 
 function ModesTable({ modes }: { modes: any[] }) {
   if (!modes?.length) return <div className="phase">Sin modos electromecánicos extraídos.</div>;
@@ -97,6 +97,15 @@ export default function SmallSignalStudy() {
                   {HOURS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
                 </select></div>
             </div>
+            <div className="row">
+              <div><label>Factor de escala de demanda</label>
+                <input type="number" step="0.05" min="0.1" value={params.scale_loads ?? 1}
+                       onChange={(e) => setParams({ ...params, scale_loads: +e.target.value })} />
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end" }}>
+                <span className="phase">Escala todas las cargas (excepto auxiliares de plantas). 1.0 = sin cambio.</span>
+              </div>
+            </div>
             <button className="run" disabled={!selected || running} onClick={launch}>
               {running ? "Ejecutando…" : "Ejecutar Small Signal"}
             </button>
@@ -114,6 +123,16 @@ export default function SmallSignalStudy() {
 
       {result && (
         <>
+          {!result.modes?.con_planta?.length && !result.speeds?.con_planta?.traces?.length && (
+            <div className="card" style={{ borderLeft: "4px solid var(--bad)", background: "rgba(231,76,60,0.08)" }}>
+              <h3 style={{ color: "var(--bad)", margin: 0 }}>⚠ La simulación no produjo datos</h3>
+              <p className="phase" style={{ marginTop: 6 }}>
+                El RMS no convergió o no se monitorearon generadores en este escenario. El veredicto es FALLA por
+                ausencia de resultados (no por inestabilidad demostrada). Prueba otra hora (nocturna, P20–P05) o
+                verifica que el escenario de operación sea válido.
+              </p>
+            </div>
+          )}
           {/* Sección A: autovalores y amortiguamiento */}
           <div className="card">
             <h3>A) Análisis de autovalores y amortiguamiento</h3>

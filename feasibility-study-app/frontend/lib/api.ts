@@ -27,6 +27,7 @@ export interface RunParams {
   bess_mw: number;
   bess_mwh: number;
   bess_mode: "discharge" | "charge";
+  scale_loads?: number;
 }
 
 export interface RunJob {

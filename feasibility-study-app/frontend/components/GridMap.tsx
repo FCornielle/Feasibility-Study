@@ -61,9 +61,12 @@ export default function GridMap({
           attribution="&copy; OpenStreetMap"
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         />
-        {lines.map((f, i) => {
+        {lines.filter((f) => f.geometry).map((f, i) => {
           const coords = (f.geometry.coordinates as number[][]).map((c) => [c[1], c[0]] as [number, number]);
-          return <Polyline key={`l${i}`} positions={coords} pathOptions={{ color: "#33506b", weight: 1.2 }} />;
+          const straight = f.properties.straight;   // línea aproximada (recta entre subestaciones)
+          return <Polyline key={`l${i}`} positions={coords}
+            pathOptions={{ color: straight ? "#3a4f63" : "#33506b", weight: straight ? 1 : 1.2,
+                           dashArray: straight ? "4 5" : undefined, opacity: straight ? 0.65 : 1 }} />;
         })}
         {subs.map((f, i) => {
           const [lon, lat] = f.geometry.coordinates as number[];

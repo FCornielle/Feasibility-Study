@@ -29,7 +29,7 @@ SUBSTUDIES = [
 ]
 
 
-def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=None, progress=None):
+def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_loads=1.0, run_id=None, progress=None):
     run_id = run_id or time.strftime("%Y%m%d_%H%M%S")
     report = progress or (lambda p, q: None)
     data = {
@@ -42,7 +42,7 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=N
         data["labels"][key] = label
         report(f"{label}", int(100 * i / n))
         try:
-            d = fn(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode, run_id=f"{run_id}_{key}")
+            d = fn(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode, scale_loads=scale_loads, run_id=f"{run_id}_{key}")
             data["studies"][key] = d
             data["compliance_summary"][key] = (d.get("compliance") or {}).get("overall", "-")
             if "pcc" in d and "pcc" not in data:

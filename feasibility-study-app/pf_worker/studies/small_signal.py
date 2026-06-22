@@ -79,7 +79,8 @@ def _analyze(speeds):
     return series, modes, crit_damp, crit_freq
 
 
-def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=None, progress=None):
+def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_loads=1.0,
+        run_id=None, progress=None):
     run_id = run_id or time.strftime("%Y%m%d_%H%M%S")
     report = progress or (lambda p, q: None)
     data = {"study": STUDY, "run_id": run_id, "substation": sub_name, "perturbation": PERTURBATION,
@@ -87,6 +88,7 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=N
 
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
+        data["load_scaling"] = pv_bess.scale_loads(sb, app, scale_loads)
         report("flujo de carga base", 8)
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga base no convergió.")

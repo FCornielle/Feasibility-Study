@@ -15,7 +15,9 @@ class RunRequest(BaseModel):
     bess_mode: str = Field("discharge", pattern="^(discharge|charge)$",
                            description="Modo del BESS: 'discharge' (punta) o 'charge' (mediodía)")
     scenario: Optional[str] = Field(None, description="Escenario de operación / hora (P01..P24); None = el activo")
+    scale_loads: float = Field(1.0, gt=0, description="Factor de escala de demanda (a todas las cargas no auxiliares)")
 
     def to_params(self) -> dict:
         return {"pv_mw": self.pv_mw, "bess_mw": self.bess_mw,
-                "bess_mwh": self.bess_mwh, "bess_mode": self.bess_mode, "scenario": self.scenario}
+                "bess_mwh": self.bess_mwh, "bess_mode": self.bess_mode,
+                "scenario": self.scenario, "scale_loads": self.scale_loads}

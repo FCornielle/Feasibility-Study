@@ -41,27 +41,37 @@ def _substation_features(app) -> list[dict]:
     return feats
 
 
+def _line_sub(l, bus_attr):
+    """Código de subestación del extremo `bus_attr` ('bus1'/'bus2') de la línea."""
+    try:
+        cub = l.GetAttribute(bus_attr)
+        term = cub.GetAttribute("cterm") if cub is not None else None
+        ss = term.GetAttribute("cpSubstat") if term is not None else None
+        return ss.loc_name if ss is not None else None
+    except Exception:
+        return None
+
+
 def _line_features(app) -> list[dict]:
+    """TODAS las líneas. Si tienen ruta GPS -> LineString; si NO -> geometry None + sus subestaciones
+    extremas (sub1/sub2), para que `enrich_coords` las dibuje como recta entre ambas (visibles en el mapa)."""
     feats = []
     for l in app.GetCalcRelevantObjects("*.ElmLne"):
-        gc = l.GetAttribute("GPScoords")
-        if not (isinstance(gc, list) and len(gc) >= 2):
-            continue
-        # gc: filas [lat, lon] -> GeoJSON [lon, lat]
-        coords = [[row[1], row[0]] for row in gc if isinstance(row, list) and len(row) >= 2]
-        if len(coords) < 2:
-            continue
         try:
             kv = round(float(l.GetAttribute("bus1").GetAttribute("uknom")), 1)
         except Exception:
             kv = None
-        feats.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "LineString", "coordinates": coords},
-                "properties": {"kind": "line", "name": l.loc_name, "kv": kv},
-            }
-        )
+        props = {"kind": "line", "name": l.loc_name, "kv": kv,
+                 "sub1": _line_sub(l, "bus1"), "sub2": _line_sub(l, "bus2")}
+        gc = l.GetAttribute("GPScoords")
+        coords = ([[row[1], row[0]] for row in gc if isinstance(row, list) and len(row) >= 2]
+                  if isinstance(gc, list) and len(gc) >= 2 else [])
+        if len(coords) >= 2:
+            feats.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": coords},
+                          "properties": props})
+        elif props["sub1"] and props["sub2"] and props["sub1"] != props["sub2"]:
+            # sin ruta: geometría nula -> la rellena enrich_coords con una recta entre subestaciones
+            feats.append({"type": "Feature", "geometry": None, "properties": props})
     return feats
 
 

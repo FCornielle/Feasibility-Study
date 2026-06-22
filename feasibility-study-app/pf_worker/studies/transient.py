@@ -21,7 +21,7 @@ FAULT_T = 1.0
 CLEAR_MS = 150  # tiempo de despeje [ms]
 
 
-def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=None, progress=None):
+def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_loads=1.0, run_id=None, progress=None):
     run_id = run_id or time.strftime("%Y%m%d_%H%M%S")
     report = progress or (lambda p, q: None)
     data = {"study": STUDY, "run_id": run_id, "substation": sub_name,

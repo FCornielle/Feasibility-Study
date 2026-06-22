@@ -12,6 +12,7 @@ datas = [
     (os.path.join(APP_ROOT, "frontend", "out"), "frontend/out"),
     (os.path.join(APP_ROOT, "results", "substations.json"), "results"),
     (os.path.join(APP_ROOT, "results", "grid_map.geojson"), "results"),
+    (os.path.join(PF_WORKER, "refdata"), "pf_worker/refdata"),  # coords enriquecidas (modom + PDF)
 ]
 binaries = []
 hidden = []

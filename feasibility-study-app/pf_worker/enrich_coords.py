@@ -19,6 +19,14 @@ import os
 from collections import Counter, defaultdict
 
 REFDATA = os.path.join(os.path.dirname(__file__), "refdata")
+if not os.path.isdir(REFDATA):  # empaquetado (.exe): refdata se bundlea bajo RESOURCE/pf_worker/refdata
+    try:
+        import paths
+        _r = os.path.join(paths.RESOURCE, "pf_worker", "refdata")
+        if os.path.isdir(_r):
+            REFDATA = _r
+    except Exception:
+        pass
 RESULTS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "results"))
 
 
@@ -103,6 +111,45 @@ def add_display_names(results_dir: str = RESULTS_DIR) -> int:
     return n
 
 
+def _norm_name(s: str) -> str:
+    """Normaliza un nombre de subestación para emparejar (sin acentos, abreviaturas ni palabras genéricas)."""
+    import re
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"\bzf\b", "zona franca", s)        # abreviatura común en el modelo
+    s = re.sub(r"[^a-z0-9 ]", " ", s)
+    # palabras genéricas/sufijos (Bp/Bt = barra/breaker, Terminal/Gen/Grupo/Vapor = terminales de planta)
+    s = re.sub(r"\b(subestacion|subestaciones|electrica|electricas|hidroelectrica|central|planta|terminal|"
+               r"gen|grupo|vapor|parque|eolico|fotovoltaico|psfv|pfv|kv|eted|ede|edenorte|edesur|eg|"
+               r"bp|bt|bg|kps|de|del|la|el|los|las|ii|i|km|kilometro)\b", " ", s)
+    s = re.sub(r"\b\d+\b", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def pdf_coord_index() -> dict:
+    """nombre_normalizado -> (lat, lon) desde el plano PDF (refdata/pdf_substation_coords.csv)."""
+    path = os.path.join(REFDATA, "pdf_substation_coords.csv")
+    if not os.path.exists(path):
+        return {}
+    idx = {}
+    with open(path, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r.get("lat") and r.get("lon"):
+                key = _norm_name(r["name"])
+                if key and key not in idx:
+                    idx[key] = (float(r["lat"]), float(r["lon"]))
+    return idx
+
+
+def _pdf_match(idx: dict, *names) -> tuple | None:
+    """Busca en el índice del PDF por cualquiera de los nombres dados (normalizados)."""
+    for nm in names:
+        c = idx.get(_norm_name(nm or ""))
+        if c:
+            return c
+    return None
+
+
 def substation_coords_from_modom() -> dict:
     """código de subestación -> (lat, lon, source) usando el centroide de sus barras geolocalizadas."""
     bus = _load_bus_coords()
@@ -125,7 +172,9 @@ def enrich(results_dir: str = RESULTS_DIR) -> dict:
         subs = json.load(f)
 
     modom = substation_coords_from_modom()
-    stats = {"pf_model": 0, "modom_smc": 0, "manual_override": 0, "none": 0, "unmatched_names": []}
+    pdf_idx = pdf_coord_index()
+    modom_names = substation_display_names()    # code -> nombre legible (para intentar más variantes)
+    stats = {"pf_model": 0, "modom_smc": 0, "manual_override": 0, "pdf": 0, "none": 0, "unmatched_names": []}
 
     for s in subs:
         if s.get("has_gps"):  # GPS del propio modelo: prioridad máxima
@@ -138,8 +187,15 @@ def enrich(results_dir: str = RESULTS_DIR) -> dict:
             s["has_gps"] = True
             stats[m[2]] += 1
         else:
-            s["coord_source"] = None
-            stats["none"] += 1
+            # respaldo: plano PDF, emparejando por nombre legible (display del modelo, código, o nombre modom)
+            p = _pdf_match(pdf_idx, s.get("display_name"), s["name"], modom_names.get(s["name"]))
+            if p:
+                s["lat"], s["lon"], s["coord_source"] = round(p[0], 6), round(p[1], 6), "pdf"
+                s["has_gps"] = True
+                stats["pdf"] += 1
+            else:
+                s["coord_source"] = None
+                stats["none"] += 1
 
     with open(subs_path, "w", encoding="utf-8") as f:
         json.dump(subs, f, ensure_ascii=False, indent=2)
@@ -149,11 +205,26 @@ def enrich(results_dir: str = RESULTS_DIR) -> dict:
 
 
 def _rebuild_geojson_points(results_dir: str, subs: list) -> None:
-    """Regenera los puntos de subestación en el GeoJSON desde el set enriquecido; conserva las líneas."""
+    """Regenera los puntos de subestación desde el set enriquecido y dibuja como RECTA (entre las dos
+    subestaciones extremas) las líneas sin ruta GPS, usando las coordenadas enriquecidas."""
     geo_path = os.path.join(results_dir, "grid_map.geojson")
     with open(geo_path, encoding="utf-8") as f:
         fc = json.load(f)
-    lines = [ft for ft in fc["features"] if ft["properties"].get("kind") == "line"]
+    coord = {s["name"]: [s["lon"], s["lat"]] for s in subs if s.get("has_gps")}
+    lines = []
+    for ft in fc["features"]:
+        if ft["properties"].get("kind") != "line":
+            continue
+        if ft.get("geometry") is None:           # línea sin ruta -> recta entre subestaciones
+            p = ft["properties"]
+            a, b = coord.get(p.get("sub1")), coord.get(p.get("sub2"))
+            if a and b:
+                ft["geometry"] = {"type": "LineString", "coordinates": [a, b]}
+                ft["properties"]["straight"] = True
+                lines.append(ft)
+            # si falta alguna coordenada del extremo, no se puede dibujar -> se omite
+        else:
+            lines.append(ft)
     points = [
         {
             "type": "Feature",
