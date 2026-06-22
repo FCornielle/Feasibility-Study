@@ -147,31 +147,10 @@ def _substation_voltages(app) -> dict:
     return {k: v[1] for k, v in best.items()}
 
 
-def _neighbor_buses(app, sub, limit: int = 5) -> list:
-    """Barras de subestaciones VECINAS conectadas por una línea/trafo a la subestación de la planta."""
-    sub_terms = {t.GetFullName() for t in pv_bess.substation_terminals(app, sub)}
-    out, seen = [], set()
-    for cls in ("*.ElmLne", "*.ElmTr2", "*.ElmTr3"):
-        for br in app.GetCalcRelevantObjects(cls):
-            if br.GetAttribute("outserv") != 0:
-                continue
-            terms = []
-            for side in ("bus1", "bus2", "bus3"):
-                cub = _attr(br, side)
-                ct = _attr(cub, "cterm") if cub is not None else None
-                if ct is not None:
-                    terms.append(ct)
-            names = [t.GetFullName() for t in terms]
-            if not any(n in sub_terms for n in names):
-                continue
-            for t in terms:
-                fn = t.GetFullName()
-                ss = t.GetAttribute("cpSubstat")
-                if fn in sub_terms or fn in seen or ss is None or ss.loc_name == sub.loc_name:
-                    continue
-                seen.add(fn)
-                out.append(t)
-    return out[:limit]
+def _neighbor_buses(app, sub, limit: int = 6) -> list:
+    """Barras representativas de subestaciones vecinas (1.er, 2.º y 3.er grado si hay pocas) para la
+    comparación de tensión antes/después. Reutiliza el barrido por grados del cortocircuito."""
+    return [t for t, _deg, _name in _sc_buses(app, sub, limit=limit)]
 
 
 def _short_circuit(app, pcc) -> dict:
@@ -238,38 +217,93 @@ def _line_terms(app, ln):
     return out
 
 
+def _branch_terms(app, br):
+    """Terminales de una rama (línea o transformador) vía bus1/bus2/bus3."""
+    terms = []
+    for side in ("bus1", "bus2", "bus3"):
+        cub = _attr(br, side)
+        ct = _attr(cub, "cterm") if cub is not None else None
+        if ct is not None:
+            terms.append(ct)
+    return terms
+
+
+def _local_branches_by_degree(app, sub, min_count: int = 5, max_degree: int = 3):
+    """Ramas (LÍNEAS y TRANSFORMADORES) por GRADO de conexión desde la subestación de la planta.
+
+    BFS a NIVEL DE TERMINAL: el grado = nº de subestaciones cruzadas (los puntos de derivación/tap, sin
+    subestación, se atraviesan sin sumar grado; los acoples conectan barras dentro de una subestación).
+    Así una subestación radial de 69 kV que se conecta por un tap a una línea, o por un trafo a 138 kV,
+    sí alcanza a sus vecinas. Siempre llega al 2.º grado; si el total es < min_count, extiende al 3.er.
+    Devuelve [(rama, grado, es_linea)] (solo líneas y trafos; los acoples son solo para atravesar)."""
+    from collections import deque
+
+    adj = {}   # fullname terminal -> [(rama, term_vecino, es_linea, reportable)]
+    for cls, is_line, reportable in (("*.ElmLne", True, True), ("*.ElmTr2", False, True),
+                                     ("*.ElmTr3", False, True), ("*.ElmCoup", False, False)):
+        for br in app.GetCalcRelevantObjects(cls):
+            try:
+                if br.GetAttribute("outserv") != 0:
+                    continue
+            except Exception:
+                pass
+            ts = _branch_terms(app, br)
+            for i in range(len(ts)):
+                for j in range(len(ts)):
+                    if i != j:
+                        adj.setdefault(ts[i].GetFullName(), []).append((br, ts[j], is_line, reportable))
+
+    def subname(t):
+        ss = t.GetAttribute("cpSubstat")
+        return ss.loc_name if ss is not None else None
+
+    plant_terms = pv_bess.substation_terminals(app, sub)
+    dist = {t.GetFullName(): 0 for t in plant_terms}
+    q = deque(plant_terms)
+    branch_deg = {}   # id(rama) -> (rama, grado, es_linea)
+    while q:
+        u = q.popleft()
+        du, usub = dist[u.GetFullName()], subname(u)
+        for br, v, is_line, reportable in adj.get(u.GetFullName(), []):
+            vsub = subname(v)
+            dv = du + (1 if (vsub and vsub != usub) else 0)   # sumar grado solo al cambiar de subestación
+            if dv > max_degree:
+                continue
+            if reportable:
+                bdeg = max(1, max(du, dv))
+                cur = branch_deg.get(id(br))
+                if cur is None or bdeg < cur[1]:
+                    branch_deg[id(br)] = (br, bdeg, is_line)
+            vfn = v.GetFullName()
+            if vfn not in dist or dv < dist[vfn]:
+                dist[vfn] = dv
+                q.append(v)
+
+    branches = sorted(branch_deg.values(), key=lambda x: x[1])
+    near = [b for b in branches if b[1] <= 2]
+    if len(near) >= min_count:                # 1.er y 2.º siempre; 3.er solo si faltan
+        return near
+    return near + [b for b in branches if b[1] == 3]
+
+
+def _local_lines_by_degree(app, sub, min_count: int = 5, max_degree: int = 3):
+    """Solo las LÍNEAS por grado (para N-1; el barrido cruza trafos para alcanzar líneas lejanas)."""
+    return [(b, d) for b, d, is_line in _local_branches_by_degree(app, sub, min_count, max_degree) if is_line]
+
+
 def _local_lines(app, sub):
-    """Líneas de 1.er grado (conectadas directo a la subestación de la planta) y de 2.º grado
-    (conectadas a una subestación vecina a la de la planta)."""
-    sub_terms = {t.GetFullName() for t in pv_bess.substation_terminals(app, sub)}
-    lines = [l for l in app.GetCalcRelevantObjects("*.ElmLne") if l.GetAttribute("outserv") == 0]
-    first, first_names, neigh_subs = [], set(), set()
-    for ln in lines:
-        terms = _line_terms(app, ln)
-        if any(t.GetFullName() in sub_terms for t in terms):
-            first.append(ln)
-            first_names.add(ln.GetFullName())
-            for t in terms:
-                ss = t.GetAttribute("cpSubstat")
-                if ss is not None and ss.loc_name != sub.loc_name:
-                    neigh_subs.add(ss.loc_name)
-    second = []
-    for ln in lines:
-        if ln.GetFullName() in first_names:
-            continue
-        for t in _line_terms(app, ln):
-            ss = t.GetAttribute("cpSubstat")
-            if ss is not None and ss.loc_name in neigh_subs:
-                second.append(ln)
-                break
-    return first, second
+    """(compat) Líneas de 1.er y 2.º grado como dos listas; extiende al 3.er grado si hay pocas."""
+    by_deg = _local_lines_by_degree(app, sub)
+    first = [ln for ln, d in by_deg if d == 1]
+    rest = [ln for ln, d in by_deg if d >= 2]   # 2.º (y 3.er grado si se incluyó)
+    return first, rest
 
 
 def _contingency_matrix(app, sub, max_lines: int = 14) -> dict:
     """Matriz N-1 estilo Sajoma: cargabilidad de cada línea local bajo la salida de cada línea local."""
-    first, second = _local_lines(app, sub)
-    monitored = (first + second)[:max_lines]
-    meta = [{"name": ln.loc_name, "degree": 1 if ln in first else 2} for ln in monitored]
+    by_deg = _local_lines_by_degree(app, sub)[:max_lines]
+    monitored = [ln for ln, _ in by_deg]
+    meta = [{"name": ln.loc_name, "degree": d} for ln, d in by_deg]
     _run_ldf(app)
     base_load = [round(_attr(ln, "m:loading") or 0.0, 1) for ln in monitored]
 
@@ -300,12 +334,13 @@ def _contingency_matrix(app, sub, max_lines: int = 14) -> dict:
 
 
 def _sc_buses(app, sub, limit: int = 8):
-    """Una barra representativa por subestación vecina (1.er y 2.º grado) para el cortocircuito."""
-    first, second = _local_lines(app, sub)
+    """Una barra representativa por subestación vecina (1.er, 2.º y, si hay pocas, 3.er grado).
+    Cruza líneas Y transformadores (alcanza las barras de 138/345 kV vecinas)."""
+    by_deg = _local_branches_by_degree(app, sub)
     by_sub = {}  # sub_name -> (term, degree)
 
-    def consider(ln, degree):
-        for t in _line_terms(app, ln):
+    def consider(br, degree):
+        for t in _branch_terms(app, br):
             ss = t.GetAttribute("cpSubstat")
             if ss is None or ss.loc_name == sub.loc_name:
                 continue
@@ -313,10 +348,8 @@ def _sc_buses(app, sub, limit: int = 8):
             if cur is None or degree < cur[1] or (degree == cur[1] and t.GetAttribute("uknom") > cur[0].GetAttribute("uknom")):
                 by_sub[ss.loc_name] = (t, degree)
 
-    for ln in first:
-        consider(ln, 1)
-    for ln in second:
-        consider(ln, 2)
+    for br, d, _is_line in by_deg:
+        consider(br, d)
     items = sorted(by_sub.items(), key=lambda kv: (kv[1][1], -kv[1][0].GetAttribute("uknom")))[:limit]
     return [(t, deg, name) for name, (t, deg) in items]
 
