@@ -6,11 +6,16 @@ versión de PowerFactory y proyecto.
 
 ## Cómo funciona
 - `launch.py` es el único punto de entrada y tiene varios roles (para que el .exe se reinvoque a sí mismo):
-  - sin args → **shell**: popups (versión PF + proyecto) → lanza worker + backend → abre la ventana.
-  - `--worker` → corre el worker de PowerFactory (subproceso; usa `PF_VERSION`/`PF_PROJECT`).
-  - `--probe`  → conecta a PF y lista proyectos (alimenta la 2ª popup).
+  - sin args → **shell**: popup de versión de DigSILENT (siempre) + popup de proyecto → lanza worker y
+    backend (subprocesos) → muestra una pantalla **"Iniciando…"** que espera a que el backend responda
+    `/api/health` → abre la ventana. Así nunca aparece "127.0.0.1 refused to connect".
+  - `--worker`  → corre el worker de PowerFactory (subproceso; usa `PF_VERSION`/`PF_PROJECT`).
+  - `--backend` → corre el backend FastAPI en su propio proceso (evita problemas de hilos/señales del .exe).
+  - `--probe`   → conecta a PF y lista proyectos (alimenta la popup de proyecto).
   - `--print-env` → diagnóstico sin GUI.
-- El backend sirve el frontend **estático** (`frontend/out`) y la API en `127.0.0.1:8000` (mismo origen, sin CORS).
+- El backend usa un **puerto libre** (no fijo a 8000, para no chocar con el dev server ni otra instancia);
+  sirve el frontend **estático** (`frontend/out`) y la API en `127.0.0.1:<puerto>` (mismo origen, sin CORS).
+- **No** abrir el .exe con el stack de desarrollo corriendo: PowerFactory tiene una sola licencia/engine.
 - `powerfactory.pyd` **no** se empaqueta: se resuelve en runtime desde la instalación de PF detectada
   (`connect.detect_pf_versions()` escanea `C:\Program Files\DIgSILENT\PowerFactory *`).
 

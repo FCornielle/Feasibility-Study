@@ -16,7 +16,6 @@ import os
 import socket
 import subprocess
 import sys
-import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +33,14 @@ PORT = int(os.environ.get("APP_PORT", "8000"))
 def role_worker():
     import worker  # pf_worker/worker.py (usa PF_VERSION/PF_PROJECT del entorno)
     worker.main()
+
+
+def role_backend():
+    """Corre el backend FastAPI en su PROPIO proceso (evita problemas de hilos/señales del .exe)."""
+    import uvicorn
+    from app.main import app as backend_app  # backend/app/main.py
+    port = int(os.environ.get("APP_PORT", str(PORT)))
+    uvicorn.run(backend_app, host="127.0.0.1", port=port, log_level="warning")
 
 
 def role_probe():
@@ -102,24 +109,49 @@ def probe_projects(version: str) -> list[str]:
         return []
 
 
-def wait_port(port: int, timeout: float = 40.0) -> bool:
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                return True
-        time.sleep(0.4)
-    return False
+def free_port() -> int:
+    """Un puerto TCP libre (evita choques con otra instancia o con el dev server en :8000)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
-def start_backend(port: int):
-    import uvicorn
-    from app.main import app as backend_app  # backend/app/main.py
+def splash_wait(port: int, timeout: float = 150.0) -> bool:
+    """Pantalla 'Iniciando…' que se cierra cuando el backend responde /api/health. True si quedó listo."""
+    import tkinter as tk
+    import urllib.request
+    from tkinter import ttk
 
-    def _run():
-        uvicorn.run(backend_app, host="127.0.0.1", port=port, log_level="warning")
+    root = tk.Tk()
+    root.title("Estudios de Interconexión PV+BESS")
+    root.geometry("440x150")
+    root.eval("tk::PlaceWindow . center")
+    ttk.Label(root, text="Iniciando aplicación…\nConectando a PowerFactory (puede tardar unos segundos)",
+              font=("Segoe UI", 10), justify="center").pack(pady=(22, 12))
+    pb = ttk.Progressbar(root, mode="indeterminate", length=340)
+    pb.pack()
+    pb.start(12)
+    state = {"ok": False, "t0": time.time()}
+    url = f"http://127.0.0.1:{port}/api/health"
 
-    threading.Thread(target=_run, daemon=True).start()
+    def poll():
+        try:
+            with urllib.request.urlopen(url, timeout=1) as r:
+                if r.status == 200:
+                    state["ok"] = True
+                    root.destroy()
+                    return
+        except Exception:
+            pass
+        if time.time() - state["t0"] > timeout:
+            root.destroy()
+            return
+        root.after(600, poll)
+
+    root.protocol("WM_DELETE_WINDOW", lambda: None)   # no cerrable durante el arranque
+    root.after(500, poll)
+    root.mainloop()
+    return state["ok"]
 
 
 def role_shell():
@@ -129,7 +161,8 @@ def role_shell():
     if not versions:
         _error("No se encontró PowerFactory con bindings de Python instalados.")
         return
-    version = versions[0] if len(versions) == 1 else pick("Versión de PowerFactory", versions)
+    # Siempre mostramos el selector con las versiones de DigSILENT detectadas en la computadora.
+    version = pick("Versión de DigSILENT PowerFactory detectada:", versions)
 
     projects = probe_projects(version)
     if not projects:
@@ -139,26 +172,39 @@ def role_shell():
     default_proj = connect.DEFAULT_PROJECT if connect.DEFAULT_PROJECT in projects else projects[0]
     project = projects[0] if len(projects) == 1 else pick("Proyecto de PowerFactory", projects, default_proj)
 
+    port = free_port()
     os.environ["PF_VERSION"] = version
     os.environ["PF_PROJECT"] = project
+    os.environ["APP_PORT"] = str(port)
+    env = dict(os.environ)
 
-    worker_proc = subprocess.Popen(_self_cmd("--worker"), env=dict(os.environ))
-    start_backend(PORT)
-    wait_port(PORT)
+    worker_proc = subprocess.Popen(_self_cmd("--worker"), env=env)
+    backend_proc = subprocess.Popen(_self_cmd("--backend"), env=env)
+
+    if not splash_wait(port):
+        _error("El servidor interno no respondió a tiempo.\n"
+               "Revisa que PowerFactory esté disponible y la licencia libre, y reintenta.")
+        for p in (worker_proc, backend_proc):
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        return
 
     import webview
     webview.create_window(
         f"Estudios de Interconexión PV+BESS — {project} (PF {version})",
-        f"http://127.0.0.1:{PORT}/",
+        f"http://127.0.0.1:{port}/",
         width=1500, height=950,
     )
     try:
         webview.start()
     finally:
-        try:
-            worker_proc.terminate()
-        except Exception:
-            pass
+        for p in (worker_proc, backend_proc):
+            try:
+                p.terminate()
+            except Exception:
+                pass
 
 
 def _error(msg: str):
@@ -175,6 +221,8 @@ def _error(msg: str):
 def main():
     if "--worker" in sys.argv:
         role_worker()
+    elif "--backend" in sys.argv:
+        role_backend()
     elif "--probe" in sys.argv:
         role_probe()
     elif "--print-env" in sys.argv:
