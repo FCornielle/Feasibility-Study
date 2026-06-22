@@ -16,10 +16,10 @@ function ModesTable({ modes }: { modes: any[] }) {
       <thead><tr><td>Frec [Hz]</td><td style={{ textAlign: "right" }}>Amortig. [%]</td>
         <td style={{ textAlign: "right" }}>σ [1/s]</td></tr></thead>
       <tbody>
-        {modes.slice(0, 8).map((m, i) => (
-          <tr key={i} style={{ fontWeight: i === 0 ? 700 : 400 }}>
-            <td>{i === 0 ? "★ " : ""}{m.freq_hz}</td>
-            <td style={{ textAlign: "right", color: m.damping_pct < 3 ? "var(--warn)" : "var(--text)" }}>{m.damping_pct}</td>
+        {modes.slice(0, 10).map((m, i) => (
+          <tr key={i}>
+            <td>{m.freq_hz}</td>
+            <td style={{ textAlign: "right", color: m.damping_pct < 5 ? "var(--warn)" : "var(--text)" }}>{m.damping_pct}</td>
             <td style={{ textAlign: "right", color: m.real < 0 ? "var(--good)" : "var(--bad)" }}>{m.real}</td>
           </tr>
         ))}
@@ -121,12 +121,12 @@ export default function SmallSignalStudy() {
             <div className="kpi" style={{ margin: "10px 0" }}>
               <div className="item"><div className="v">{di?.sin_planta ?? "—"}%</div><div className="l">amortig. crítico SIN planta</div></div>
               <div className="item"><div className="v">{di?.con_planta ?? "—"}%</div><div className="l">amortig. crítico CON planta</div></div>
-              <div className="item"><div className="v">{result.modes?.con_planta?.[0]?.freq_hz ?? "—"} Hz</div><div className="l">frecuencia modo crítico</div></div>
+              <div className="item"><div className="v">{result.crit_freq?.con_planta ?? "—"} Hz</div><div className="l">frecuencia modo crítico</div></div>
             </div>
             <div className="grid2">
               <EigenvalueChart sin={result.modes?.sin_planta ?? []} con={result.modes?.con_planta ?? []} />
               <div>
-                <p className="phase">Modos con planta (★ = crítico):</p>
+                <p className="phase">Modos identificados con planta (multi-señal, ordenados por amortiguamiento):</p>
                 <ModesTable modes={result.modes?.con_planta ?? []} />
               </div>
             </div>
@@ -141,8 +141,14 @@ export default function SmallSignalStudy() {
             <h3>B) Perturbación pequeña — velocidad de los generadores más distantes</h3>
             <div className="selected" style={{ marginBottom: 10 }}>Perturbación: {result.perturbation}</div>
             <div className="grid2">
-              <SpeedChart series={result.speeds?.sin_planta} title="Velocidad de rotores — SIN planta [pu]" />
-              <SpeedChart series={result.speeds?.con_planta} title="Velocidad de rotores — CON planta [pu]" />
+              <div>
+                <h4 style={{ margin: "0 0 4px", color: "var(--warn)" }}>● SIN planta</h4>
+                <SpeedChart series={result.speeds?.sin_planta} title="Velocidad de rotores [pu]" />
+              </div>
+              <div>
+                <h4 style={{ margin: "0 0 4px", color: "var(--accent)" }}>✚ CON planta</h4>
+                <SpeedChart series={result.speeds?.con_planta} title="Velocidad de rotores [pu]" />
+              </div>
             </div>
             <p className="phase" style={{ marginTop: 8 }}>
               Generadores monitoreados (los más distantes del punto de oscilación, que tienden a perder sincronismo):

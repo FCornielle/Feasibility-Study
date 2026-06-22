@@ -22,8 +22,8 @@ from sandbox import PFRunSandbox  # noqa: E402
 
 STUDY = "small-signal"
 TSTOP, DT = 6.0, 0.01
-N_GENS = 5
-MIN_DAMPING = 5.0                    # % amortiguamiento mínimo aceptable del modo crítico
+N_GENS = 7
+MIN_DAMPING = 3.0                    # % amortiguamiento mínimo aceptable (criterio estándar small-signal)
 PULSE_T, PULSE_MS = 0.5, 80          # falla en el PCC al inicio -> ventana post-falla larga (>5 s)
 FAULT_X_PU = 0.20                    # impedancia de falla (pu sobre Zbase del PCC): dip moderado, RMS converge
 PERTURBATION = "Falla trifásica de 80 ms en el PCC (perturbación para excitar los modos)"
@@ -40,23 +40,43 @@ def _record(app, res, gens):
 
 
 def _analyze(speeds):
-    """Sección B (series) + Sección A (modos) a partir de las velocidades de los gens distantes."""
+    """Sección B (series) + Sección A (modos). Devuelve (series, modos_plot, crit_damp, crit_freq).
+
+    - modos_plot: extracción MULTI-SEÑAL (la respuesta post-falla de cada generador revela modos
+      distintos -> muchos autovalores, como el plano modal de DigSILENT).
+    - crit_damp/crit_freq: modo crítico desde el COI (promedio de velocidades). El COI promedia el ruido,
+      así que su amortiguamiento es ROBUSTO para el veredicto; las señales individuales lo sesgan a 0.
+    """
     if not speeds:
-        return None, [], None
-    # COI = promedio de las velocidades (modo inter-área dominante)
+        return None, [], None, None
     any_t = next(iter(speeds.values()))[0]
     n = min(len(v[1]) for v in speeds.values())
     coi = [sum(v[1][i] for v in speeds.values()) / len(speeds) for i in range(n)]
-    post = [(any_t[i], coi[i]) for i in range(n) if any_t[i] > PULSE_T + PULSE_MS / 1000.0]
-    modes = dynamics.electromechanical_modes([p[1] for p in post], DT) if len(post) > 20 else []
-    crit = modes[0]["damping_pct"] if modes else None        # modo crítico (menos amortiguado)
-    # series para el frontend (downsampled)
+    t0 = PULSE_T + PULSE_MS / 1000.0
+
+    sigs = []
+    for (t, sp) in speeds.values():
+        post = [sp[i] for i in range(min(len(t), len(sp))) if t[i] > t0]
+        if len(post) > 20:
+            sigs.append(post)
+    modes = dynamics.modes_from_signals(sigs, DT) if sigs else []
+
+    # Veredicto ROBUSTO: amortiguamiento del envolvente de la oscilación dominante del COI por
+    # decremento logarítmico (como Sajoma). Tomar el "modo de menor amortiguamiento" del matrix-pencil
+    # es frágil: siempre aparecen autovalores espurios cercanos a 0/negativo y el mínimo agarra el peor.
+    post_coi = [coi[i] for i in range(n) if any_t[i] > t0]
+    dr = dynamics.damping_ratio(post_coi) if len(post_coi) > 20 else None
+    crit_damp = round(dr * 100.0, 2) if dr is not None else None
+    # Frecuencia del modo dominante = el que más generadores ven (mayor 'count'), banda inter-área primero.
+    dom = max(modes, key=lambda m: (m["count"], -m["freq_hz"])) if modes else None
+    crit_freq = dom["freq_hz"] if dom else None
+
     traces = []
     for name, (t, sp) in speeds.items():
         tx, yx = dynamics.downsample(t, sp)
         traces.append({"name": name, "y": yx})
     series = {"x_label": "t [s]", "x": dynamics.downsample(any_t, coi)[0], "traces": traces}
-    return series, modes, crit
+    return series, modes, crit_damp, crit_freq
 
 
 def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=None, progress=None):
@@ -95,7 +115,7 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=N
         report("RMS sin planta (perturbación pequeña)", 30)
         inc, sim, res = dynamics.rms_prepare(app, [(g, "s:xspeed") for g in dgens])
         dynamics.rms_run(app, inc, sim, tstop=TSTOP, dt=DT)
-        series_base, modes_base, crit_base = _analyze(_record(app, res, dgens))
+        series_base, modes_base, crit_base, fcrit_base = _analyze(_record(app, res, dgens))
 
         # CON planta (despacho coherente con la hora)
         report("modelando PV+BESS", 55)
@@ -104,12 +124,13 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", run_id=N
         report("RMS con planta", 70)
         inc, sim, res = dynamics.rms_prepare(app, [(g, "s:xspeed") for g in dgens])
         dynamics.rms_run(app, inc, sim, tstop=TSTOP, dt=DT)
-        series_plant, modes_plant, crit_plant = _analyze(_record(app, res, dgens))
+        series_plant, modes_plant, crit_plant, fcrit_plant = _analyze(_record(app, res, dgens))
 
     report("evaluando amortiguamiento", 92)
     data["speeds"] = {"sin_planta": series_base, "con_planta": series_plant}
     data["modes"] = {"sin_planta": modes_base, "con_planta": modes_plant}
     data["damping_index"] = {"sin_planta": crit_base, "con_planta": crit_plant}
+    data["crit_freq"] = {"sin_planta": fcrit_base, "con_planta": fcrit_plant}
 
     # Criterio (Código de Conexión / práctica small-signal):
     #  - sistema estable: el modo crítico con planta tiene amortiguamiento > 0 (σ < 0).

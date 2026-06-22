@@ -143,21 +143,94 @@ def _gps_of_term(term):
     return (la, lo) if (la and lo) else None
 
 
-def distant_generators(app, pcc, n: int = 7):
-    """Generadores síncronos en servicio más LEJANOS (geográficamente) del PCC.
-    Son los que tienden a perder sincronismo en una oscilación inter-área."""
+import re as _re
+import unicodedata as _ud
+
+_COORDS_CACHE = None
+
+
+def _norm_name(s: str) -> str:
+    """Normaliza un nombre para emparejar generador <-> barra (sin acentos, sin sufijos de unidad/grupo)."""
+    s = _ud.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+    s = _re.sub(r"[^a-z0-9 ]", " ", s)
+    s = _re.sub(r"\b(grupo|unidad|generador|generadora|gen|tg|tv|tc|ccgt)\d*\b", " ", s)
+    s = _re.sub(r"\b\d+\b", " ", s)
+    return _re.sub(r"\s+", " ", s).strip()
+
+
+def _coords_indices():
+    """(sub_code -> (lat,lon), nombre_normalizado -> (lat,lon)) desde los datos enriquecidos de modom."""
+    global _COORDS_CACHE
+    if _COORDS_CACHE is None:
+        by_code, by_name = {}, {}
+        try:
+            import enrich_coords
+            for code, c in enrich_coords.substation_coords_from_modom().items():
+                by_code[code] = (c[0], c[1])
+            names = enrich_coords._bus_names()          # W -> bus_name legible
+            bus = enrich_coords._load_bus_coords()       # W -> (lat,lon,src)
+            for w, nm in names.items():
+                if w in bus:
+                    by_name.setdefault(_norm_name(nm), (bus[w][0], bus[w][1]))
+        except Exception:
+            pass
+        _COORDS_CACHE = (by_code, by_name)
+    return _COORDS_CACHE
+
+
+def _gen_coords(s, term, ss):
+    """Coordenadas de un generador: GPS del modelo -> coords de su subestación (código) -> match por nombre."""
+    g = _gps_of_term(term)
+    if g:
+        return g
+    by_code, by_name = _coords_indices()
+    if ss is not None and ss.loc_name in by_code:
+        return by_code[ss.loc_name]
+    for nm in (s.loc_name, ss.loc_name if ss is not None else ""):
+        c = by_name.get(_norm_name(nm))
+        if c:
+            return c
+    return None
+
+
+def distant_generators(app, pcc, n: int = 6):
+    """Generadores síncronos en servicio geográficamente más lejanos del PCC, UNO por subestación
+    para dar diversidad (extremos sur/norte/este: hidros remotas como Las Damas, etc.). Son los que
+    más participan en los modos inter-área (tienden a perder sincronismo).
+    Coordenadas: GPS del modelo (escaso para generadores) + datos enriquecidos de modom por código/nombre."""
     p = _gps_of_term(pcc)
-    scored = []
+    if not p:
+        ss0 = pcc.GetAttribute("cpSubstat")
+        by_code, _ = _coords_indices()
+        p = by_code.get(ss0.loc_name) if ss0 is not None else None
+    by_sub = {}   # subestación -> (coords, mayor unidad)
     for s in app.GetCalcRelevantObjects("*.ElmSym"):
         if s.GetAttribute("outserv") != 0:
             continue
         cub = s.GetAttribute("bus1")
         term = cub.GetAttribute("cterm") if cub is not None else None
-        g = _gps_of_term(term)
-        d = ((p[0] - g[0]) ** 2 + (p[1] - g[1]) ** 2) ** 0.5 if (p and g) else -1.0
-        scored.append((d, s))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [s for _, s in scored[:n]]
+        if term is None:
+            continue
+        ss = term.GetAttribute("cpSubstat")
+        g = _gen_coords(s, term, ss)
+        if not (p and g):
+            continue
+        key = ss or term
+        cur = by_sub.get(key)
+        if cur is None or _gen_rating(s) > _gen_rating(cur[1]):
+            by_sub[key] = (g, s)
+
+    # Muestreo de "punto más lejano" (farthest-point sampling) sembrado en el PCC: elige extremos en
+    # DIRECCIONES distintas (sur/norte/este), no el cúmulo de plantas más alejado en una sola zona.
+    cands = list(by_sub.values())
+    anchors = [p]
+    chosen = []
+    while cands and len(chosen) < n:
+        g, s = max(cands, key=lambda c: min((c[0][0] - a[0]) ** 2 + (c[0][1] - a[1]) ** 2 for a in anchors))
+        chosen.append(s)
+        anchors.append(g)
+        cands.remove((g, s))
+    return chosen
 
 
 def matrix_pencil(y, dt, max_order: int = 16):
@@ -200,6 +273,47 @@ def electromechanical_modes(y, dt, fmin=0.3, fmax=2.5):
         out.append({"real": round(lam.real, 4), "imag": round(abs(lam.imag), 4),
                     "freq_hz": round(f, 3), "damping_pct": round(zeta, 2)})
     out.sort(key=lambda m: m["damping_pct"])   # el crítico (menos amortiguado) primero
+    return out
+
+
+def modes_from_signals(signals, dt, fmin=0.15, fmax=5.0):
+    """Modos de oscilación combinando matrix-pencil sobre VARIAS señales (cada generador revela modos
+    distintos -> muchos más puntos, como el plano de autovalores de DigSILENT). Agrupa por frecuencia
+    los modos vistos por varias señales (mediana robusta). Lista de {real,imag,freq_hz,damping_pct,count}."""
+    import numpy as np
+    raw = []
+    for y in signals:
+        if y is None or len(y) < 30:
+            continue
+        for lam in matrix_pencil(y, dt):
+            f = abs(lam.imag) / (2 * np.pi)
+            mag = abs(lam) or 1e-9
+            zeta = -lam.real / mag * 100.0
+            if fmin <= f <= fmax and -10.0 <= zeta <= 40.0:   # banda electromecánica, descarta espurios
+                raw.append((f, zeta, lam.real, abs(lam.imag)))
+    if not raw:
+        return []
+    raw.sort()
+    clusters = []
+    for f, zeta, re, im in raw:
+        for c in clusters:
+            if abs(c["f"] - f) <= 0.07:        # misma frecuencia vista por otra señal
+                c["items"].append((f, zeta, re, im))
+                c["f"] = float(np.median([i[0] for i in c["items"]]))
+                break
+        else:
+            clusters.append({"f": f, "items": [(f, zeta, re, im)]})
+    out = []
+    for c in clusters:
+        it = c["items"]
+        out.append({
+            "real": round(float(np.median([i[2] for i in it])), 4),
+            "imag": round(float(np.median([i[3] for i in it])), 4),
+            "freq_hz": round(float(np.median([i[0] for i in it])), 3),
+            "damping_pct": round(float(np.median([i[1] for i in it])), 2),
+            "count": len(it),
+        })
+    out.sort(key=lambda m: m["damping_pct"])    # el crítico (menos amortiguado) primero
     return out
 
 
