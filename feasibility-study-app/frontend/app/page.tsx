@@ -4,6 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import SteadyState from "@/components/SteadyState";
 import DynamicStudy from "@/components/DynamicStudy";
 import SmallSignalStudy from "@/components/SmallSignalStudy";
+import TransientStudy from "@/components/TransientStudy";
 import ReportRunner from "@/components/ReportRunner";
 import { DYNAMIC_TABS, TABS } from "@/lib/tabs";
 
@@ -32,6 +33,8 @@ export default function Page() {
             <SteadyState />
           ) : tab === "small-signal" ? (
             <SmallSignalStudy />
+          ) : tab === "transient" ? (
+            <TransientStudy />
           ) : tab === "report" ? (
             <ReportRunner />
           ) : DYNAMIC_TABS.includes(tab) ? (
