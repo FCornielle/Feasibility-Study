@@ -69,7 +69,8 @@ export default function TransientStudy() {
     } catch (e) { setErr(String(e)); }
   }
 
-  const noData = result && !result.voltages?.traces?.length && !result.cct_table?.some((r: any) => r.cct_con_ms != null);
+  const noData = result && !result.cases?.some((c: any) => c.voltages?.traces?.length)
+    && !result.cct_table?.some((r: any) => r.cct_con_ms != null);
   return (
     <>
       <div className="grid2">
@@ -148,21 +149,27 @@ export default function TransientStudy() {
             </p>
           </div>
 
-          {/* Gráficos del caso representativo (despeje estable) a 5 s */}
-          <div className="card">
-            <h3>Caso representativo — falla en el PCC despejada en {result.clearing_time_ms} ms (5 s)</h3>
-            <div className="grid2">
-              <SpeedChart series={result.voltages} title="Tensiones de las barras [pu]" />
-              <SpeedChart series={result.angles} title="Ángulo de rotor [°] (vs slack)" />
+          {/* Una sección de gráficos por cada punto de falla, despejado a su CCT (mismo de la tabla) */}
+          {(result.cases ?? []).map((c: any, i: number) => (
+            <div className="card" key={i}>
+              <h3>
+                {c.degree === 0 ? "★ " : ""}Falla en {c.sub || c.bus} · {c.kv} kV
+                {c.degree === 0 ? " (PCC)" : ` (${c.degree}º grado)`} — despejada en {c.clearing_ms} ms (5 s)
+              </h3>
+              <div className="grid2">
+                <SpeedChart series={c.voltages} title="Tensiones de las barras [pu]" />
+                <SpeedChart series={c.angles} title="Ángulo de rotor [pu] (1 pu = 180° vs slack)" />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <SpeedChart series={c.speeds} title="Velocidad de los generadores [pu]" />
+              </div>
             </div>
-            <div style={{ marginTop: 10 }}>
-              <SpeedChart series={result.speeds} title="Velocidad de los generadores [pu]" />
-            </div>
-            <p className="phase" style={{ marginTop: 8 }}>
-              Las tensiones se recuperan y los ángulos/velocidades se estabilizan → el sincronismo se mantiene.
-              Generadores síncronos monitoreados (los más distantes de la falla): {(result.monitored_machines ?? []).join(", ")}.
-            </p>
-          </div>
+          ))}
+          <p className="phase">
+            Cada sección: falla trifásica despejada al CCT de la tabla. Las tensiones se recuperan y los
+            ángulos (|pu| &lt; 1) y velocidades se estabilizan → el sincronismo se mantiene. Generadores
+            monitoreados (los más distantes de la falla): {(result.monitored_machines ?? []).join(", ")}.
+          </p>
         </>
       )}
     </>

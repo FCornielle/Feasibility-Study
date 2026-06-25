@@ -33,7 +33,7 @@ from studies import steady_state as _ss  # barras de falla por grado (reutilizad
 STUDY = "transient"
 DT = 0.01
 FAULT_T = 0.5                 # instante de la falla [s]
-TSTOP_CCT = 2.0             # ventana para detectar pérdida de sincronismo (el ángulo se dispara rápido)
+TSTOP_CCT = 4.0             # ventana para juzgar estabilidad (cubre multi-swing; el CCT así es estable a 5 s)
 TSTOP_PLOT = 5.0            # ventana de los gráficos representativos [s]
 # Tiempos de despeje a probar, de MAYOR a menor (búsqueda gruesa con parada temprana): el CCT ≈ el mayor
 # estable. RMS faltado es caro en este modelo, por eso se acota (CCT acotado en PCC + 2 vecinas).
@@ -142,40 +142,86 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         # Eventos reutilizables: falla (i_shc=0) y despeje (i_shc=4); se varía el objetivo y el tiempo.
         fault_evt = dynamics.add_event(sb, app, "EvtShc", "fault", FAULT_T, target=pcc, i_shc=0)
         clear_evt = dynamics.add_event(sb, app, "EvtShc", "clear", FAULT_T + 0.1, target=pcc, i_shc=4)
+        bus_terms = [b for b, _, _ in fault_buses]
 
-        def cct_for(bus, base_pct):
-            """CCT [ms] para una barra de falla (búsqueda binaria)."""
+        def _ser(res, objs, var):
+            x0, traces = None, []
+            for o in objs:
+                tt, yy = dynamics.series(app, res, o, var)
+                if not yy:
+                    continue
+                tx, yx = dynamics.downsample(tt, yy)
+                if x0 is None:
+                    x0 = tx
+                traces.append({"name": o.loc_name[:18], "y": yx})
+            return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
+
+        def _angles_pu(res):
+            """Ángulo de rotor relativo al slack en PU (1 pu = 180° = límite de pérdida de sincronismo)."""
+            _, sl = dynamics.series(app, res, slack, "s:firel")
+            x0, traces = None, []
+            for g in machines:
+                t, y = dynamics.series(app, res, g, "s:firel")
+                if not y:
+                    continue
+                n = min(len(y), len(sl)) if sl else len(y)
+                rel = [(y[i] - (sl[i] if sl else 0.0)) / 180.0 for i in range(n)]
+                tx, yx = dynamics.downsample(t[:n], rel)
+                if x0 is None:
+                    x0 = tx
+                traces.append({"name": g.loc_name[:18], "y": yx})
+            return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
+
+        def cct_for(bus, capture=False):
+            """Búsqueda gruesa descendente del CCT [ms] (el mayor despeje que mantiene el sincronismo).
+            Si capture=True guarda los gráficos (tensiones/ángulos/velocidades) de ESA corrida del barrido
+            —sin corridas extra—. Devuelve (cct, upper, series|None)."""
             fault_evt.SetAttribute("p_target", bus)
             clear_evt.SetAttribute("p_target", bus)
-            inc, sim, res = dynamics.rms_prepare(
-                app, [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines])
-
-            def stable(clear_s):
-                clear_evt.SetAttribute("time", FAULT_T + clear_s)
+            mon = [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines]
+            if capture:
+                mon = [(t, "m:u") for t in bus_terms] + mon
+            inc, sim, res = dynamics.rms_prepare(app, mon)
+            upper = None
+            for tc in CLEARING_SET_MS:                     # de mayor a menor
+                clear_evt.SetAttribute("time", FAULT_T + tc / 1000.0)
                 dynamics.rms_run(app, inc, sim, tstop=TSTOP_CCT, dt=DT)
                 ang = _series_map(app, res, machines, "s:firel")
                 spd = _series_map(app, res, machines, "s:xspeed")
                 ok, _, _ = _is_stable(ang, spd, slack.loc_name)
-                return ok
-
-            return _cct_ms(stable)
+                if ok:
+                    cap = ({"voltages": _ser(res, bus_terms, "m:u"), "angles": _angles_pu(res),
+                            "speeds": _ser(res, machines, "s:xspeed")} if capture else None)
+                    return tc, upper, cap
+                upper = tc
+            cap = ({"voltages": _ser(res, bus_terms, "m:u"), "angles": _angles_pu(res),
+                    "speeds": _ser(res, machines, "s:xspeed")} if capture else None)
+            return None, upper, cap            # ninguno estable -> grafica el caso (inestable) del menor despeje
 
         # --- CCT SIN planta ---
         report("CCT sin planta (puede tardar)", 12)
         cct_sin = {}
         for k, (bus, deg, sname) in enumerate(fault_buses):
-            cct_sin[bus.GetFullName()] = cct_for(bus, 12)
+            r = cct_for(bus)
+            cct_sin[bus.GetFullName()] = (r[0], r[1])
             report(f"CCT sin planta ({k + 1}/{len(fault_buses)})", 12 + int(33 * (k + 1) / len(fault_buses)))
 
-        # --- Con planta PV+BESS ---
+        # --- Con planta PV+BESS (se capturan los gráficos del despeje al CCT) ---
         report("modelando PV+BESS", 48)
         pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
         app.GetFromStudyCase("ComLdf").Execute()
 
-        cct_con = {}
+        cct_con, cases = {}, []
         for k, (bus, deg, sname) in enumerate(fault_buses):
-            cct_con[bus.GetFullName()] = cct_for(bus, 50)
-            report(f"CCT con planta ({k + 1}/{len(fault_buses)})", 50 + int(33 * (k + 1) / len(fault_buses)))
+            cc, cc_up, series = cct_for(bus, capture=True)
+            cct_con[bus.GetFullName()] = (cc, cc_up)
+            clear_ms = cc if cc is not None else CLEARING_SET_MS[-1]
+            if series is not None:
+                cases.append({"bus": bus.loc_name, "sub": sname, "degree": deg,
+                              "kv": round(bus.GetAttribute("uknom"), 1), "clearing_ms": clear_ms,
+                              "stable": cc is not None, **series})
+            report(f"CCT con planta ({k + 1}/{len(fault_buses)})", 50 + int(42 * (k + 1) / len(fault_buses)))
+        data["cases"] = cases
 
         # Tabla de CCT (Cuadro 18)
         rows = []
@@ -189,39 +235,6 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                          "cct_con_ms": cc, "cct_con_upper_ms": cc_up,
                          "delta_ms": (cc - cs) if (cs is not None and cc is not None) else None})
         data["cct_table"] = rows
-
-        # --- Corrida representativa CON planta (despeje estable) para los gráficos a 5 s ---
-        report("simulación representativa (5 s)", 86)
-        cct_pcc = (cct_con.get(pcc.GetFullName(), (None, None))[0]) or 150
-        clear_rep = max(0.06, min(0.12, (cct_pcc - 20) / 1000.0))   # por debajo del CCT -> estable
-        data["clearing_time_ms"] = round(clear_rep * 1000)
-        fault_evt.SetAttribute("p_target", pcc)
-        clear_evt.SetAttribute("p_target", pcc)
-        clear_evt.SetAttribute("time", FAULT_T + clear_rep)
-        bus_terms = [b for b, _, _ in fault_buses]
-        inc, sim, res = dynamics.rms_prepare(
-            app, [(t, "m:u") for t in bus_terms]
-            + [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines])
-        dynamics.rms_run(app, inc, sim, tstop=TSTOP_PLOT, dt=DT)
-
-        def _ser(objs, var, label_fn):
-            t0 = None
-            traces = []
-            for o in objs:
-                tt, yy = dynamics.series(app, res, o, var)
-                if not yy:
-                    continue
-                if t0 is None:
-                    t0 = dynamics.downsample(tt, yy)[0]
-                traces.append({"name": label_fn(o), "y": dynamics.downsample(tt, yy)[1]})
-            return {"x": t0 or [], "traces": traces}
-
-        v_ser = _ser(bus_terms, "m:u", lambda o: o.loc_name[:18])
-        a_ser = _ser(machines, "s:firel", lambda o: o.loc_name[:18])
-        s_ser = _ser(machines, "s:xspeed", lambda o: o.loc_name[:18])
-        data["voltages"] = {"x_label": "t [s]", **v_ser}
-        data["angles"] = {"x_label": "t [s]", **a_ser}
-        data["speeds"] = {"x_label": "t [s]", **s_ser}
 
     # --- Veredicto ---
     report("evaluando", 96)
