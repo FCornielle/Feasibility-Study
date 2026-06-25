@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { SeriesChart } from "@/components/Charts";
+import RunProgress from "@/components/RunProgress";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge" };
@@ -89,12 +90,7 @@ export default function DynamicStudy({ study }: { study: string }) {
           <button className="run" disabled={!selected || running} onClick={launch}>
             {running ? "Ejecutando…" : "Ejecutar estudio"}
           </button>
-          {job && running && (
-            <>
-              <div className="progress"><div style={{ width: `${job.progress}%` }} /></div>
-              <div className="phase">{job.progress}% · {job.phase}</div>
-            </>
-          )}
+          {job && <RunProgress job={job} />}
           {err && <div className="err">{err}</div>}
           {job?.status === "error" && <div className="err">Error: {job.error}</div>}
         </div>

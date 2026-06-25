@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { VoltageRadar } from "@/components/Charts";
+import RunProgress from "@/components/RunProgress";
 import { ContingencyTable, DispatchPanel, NeighborTable, ShortCircuitSection, SystemPanel } from "@/components/SteadyPanels";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
@@ -118,12 +119,7 @@ export default function SteadyState() {
             <button className="run" disabled={!selected || running} onClick={launch}>
               {running ? "Ejecutando…" : "Ejecutar Steady State"}
             </button>
-            {job && running && (
-              <>
-                <div className="progress"><div style={{ width: `${job.progress}%` }} /></div>
-                <div className="phase">{job.progress}% · {job.phase}</div>
-              </>
-            )}
+            {job && <RunProgress job={job} />}
             {err && <div className="err">{err}</div>}
             {job?.status === "error" && <div className="err">Error: {job.error}</div>}
           </div>

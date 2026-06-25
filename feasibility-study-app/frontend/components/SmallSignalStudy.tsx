@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { EigenvalueChart, SpeedChart } from "@/components/Charts";
+import RunProgress from "@/components/RunProgress";
 import { HOURS } from "@/lib/tabs";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
@@ -114,7 +115,7 @@ export default function SmallSignalStudy() {
               (≈ P09–P17) el RMS es mucho más lento por los inversores (puede tardar varios minutos).
               Para pruebas rápidas usa horas nocturnas (P20–P05).
             </p>
-            {job && running && (<><div className="progress"><div style={{ width: `${job.progress}%` }} /></div><div className="phase">{job.progress}% · {job.phase}</div></>)}
+            {job && <RunProgress job={job} />}
             {err && <div className="err">{err}</div>}
             {job?.status === "error" && <div className="err">Error: {job.error}</div>}
           </div>

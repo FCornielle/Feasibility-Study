@@ -2,6 +2,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation } from "@/lib/api";
+import RunProgress from "@/components/RunProgress";
 import ReportView from "@/components/ReportView";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
@@ -82,12 +83,7 @@ export default function ReportRunner() {
             {running ? "Ejecutando todos los estudios…" : "Generar reporte (corre los 6 estudios)"}
           </button>
           <p className="phase" style={{ marginTop: 8 }}>Ejecuta steady + 4 dinámicos + quasi en serie (~varios minutos).</p>
-          {job && running && (
-            <>
-              <div className="progress"><div style={{ width: `${job.progress}%` }} /></div>
-              <div className="phase">{job.progress}% · {job.phase}</div>
-            </>
-          )}
+          {job && <RunProgress job={job} />}
           {err && <div className="err">{err}</div>}
           {job?.status === "error" && <div className="err">Error: {job.error}</div>}
         </div>

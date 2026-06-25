@@ -238,9 +238,14 @@ def _local_branches_by_degree(app, sub, min_count: int = 5, max_degree: int = 3)
     Devuelve [(rama, grado, es_linea)] (solo líneas y trafos; los acoples son solo para atravesar)."""
     from collections import deque
 
-    adj = {}   # fullname terminal -> [(rama, term_vecino, es_linea, reportable)]
-    for cls, is_line, reportable in (("*.ElmLne", True, True), ("*.ElmTr2", False, True),
-                                     ("*.ElmTr3", False, True), ("*.ElmCoup", False, False)):
+    def subname(t):
+        ss = t.GetAttribute("cpSubstat")
+        return ss.loc_name if ss is not None else None
+
+    adj = {}            # fullname terminal -> [(term_vecino, es_nueva_sub)]
+    reportable = []     # ramas a clasificar (líneas y trafos)
+    for cls, is_line, rep in (("*.ElmLne", True, True), ("*.ElmTr2", False, True),
+                              ("*.ElmTr3", False, True), ("*.ElmCoup", False, False)):
         for br in app.GetCalcRelevantObjects(cls):
             try:
                 if br.GetAttribute("outserv") != 0:
@@ -251,39 +256,56 @@ def _local_branches_by_degree(app, sub, min_count: int = 5, max_degree: int = 3)
             for i in range(len(ts)):
                 for j in range(len(ts)):
                     if i != j:
-                        adj.setdefault(ts[i].GetFullName(), []).append((br, ts[j], is_line, reportable))
+                        adj.setdefault(ts[i].GetFullName(), []).append(ts[j])
+            if rep:
+                reportable.append((br, is_line, ts))
 
-    def subname(t):
-        ss = t.GetAttribute("cpSubstat")
-        return ss.loc_name if ss is not None else None
-
+    # 1) BFS: distancia en SUBESTACIONES cruzadas (los taps, sin subestación, se atraviesan sin sumar).
     plant_terms = pv_bess.substation_terminals(app, sub)
     dist = {t.GetFullName(): 0 for t in plant_terms}
+    sub_dist = {sub.loc_name: 0}
     q = deque(plant_terms)
-    branch_deg = {}   # id(rama) -> (rama, grado, es_linea)
     while q:
         u = q.popleft()
         du, usub = dist[u.GetFullName()], subname(u)
-        for br, v, is_line, reportable in adj.get(u.GetFullName(), []):
+        for v in adj.get(u.GetFullName(), []):
             vsub = subname(v)
-            dv = du + (1 if (vsub and vsub != usub) else 0)   # sumar grado solo al cambiar de subestación
+            dv = du + (1 if (vsub and vsub != usub) else 0)
             if dv > max_degree:
                 continue
-            if reportable:
-                bdeg = max(1, max(du, dv))
-                cur = branch_deg.get(id(br))
-                if cur is None or bdeg < cur[1]:
-                    branch_deg[id(br)] = (br, bdeg, is_line)
             vfn = v.GetFullName()
             if vfn not in dist or dv < dist[vfn]:
                 dist[vfn] = dv
+                if vsub is not None and (vsub not in sub_dist or dv < sub_dist[vsub]):
+                    sub_dist[vsub] = dv
                 q.append(v)
 
-    branches = sorted(branch_deg.values(), key=lambda x: x[1])
-    near = [b for b in branches if b[1] <= 2]
-    if len(near) >= min_count:                # 1.er y 2.º siempre; 3.er solo si faltan
-        return near
-    return near + [b for b in branches if b[1] == 3]
+    # 2) grado de cada rama = (distancia de la subestación más cercana que toca) + 1.
+    #    Una derivación que sólo toca una subestación vecina (a 1 sub) -> grado 2, no 1.
+    out = []
+    for br, is_line, ts in reportable:
+        subs = {s for s in (subname(t) for t in ts) if s is not None}
+        ds = [sub_dist[s] for s in subs if s in sub_dist]
+        if not ds:   # rama sólo entre taps -> usar la distancia de sus terminales
+            ds = [dist[t.GetFullName()] for t in ts if t.GetFullName() in dist]
+            if not ds:
+                continue
+        deg = min(ds) + 1
+        if not (1 <= deg <= max_degree):
+            continue
+        kv = max((t.GetAttribute("uknom") for t in ts), default=0.0)
+        out.append((br, deg, is_line, kv))
+
+    # Selección: las locales de 1.er/2.º grado (3.er si hay pocas) + las de MAYOR tensión cercanas
+    # (hasta 3.er grado). En una barra de 69 kV interesa incluir las líneas de 138/345 kV próximas.
+    plant_kv = max((t.GetAttribute("uknom") for t in plant_terms), default=0.0)
+    hv = sorted([b for b in out if b[3] > plant_kv + 1.0], key=lambda x: (x[1], -x[3]))
+    local = [b for b in out if b[3] <= plant_kv + 1.0]
+    near = sorted([b for b in local if b[1] <= 2], key=lambda x: (x[1], -x[3]))
+    if len(near) < min_count:
+        near += sorted([b for b in local if b[1] == 3], key=lambda x: (x[1], -x[3]))
+    chosen = hv[:8] + near
+    return [(br, deg, is_line) for br, deg, is_line, kv in chosen]
 
 
 def _local_lines_by_degree(app, sub, min_count: int = 5, max_degree: int = 3):
