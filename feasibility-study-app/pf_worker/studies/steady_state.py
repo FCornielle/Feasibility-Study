@@ -228,14 +228,29 @@ def _branch_terms(app, br):
     return terms
 
 
-def _local_branches_by_degree(app, sub, min_count: int = 5, max_degree: int = 3):
+def _substation_coords():
+    """nombre de subestación -> (lat, lon) desde results/substations.json (para el fallback geográfico)."""
+    import json
+    import paths
+    out = {}
+    try:
+        with open(os.path.join(paths.RESULTS_DIR, "substations.json"), encoding="utf-8") as f:
+            for s in json.load(f):
+                if s.get("lat") and s.get("lon"):
+                    out[s["name"]] = (s["lat"], s["lon"])
+    except Exception:
+        pass
+    return out
+
+
+def _local_branches_by_degree(app, sub, min_count: int = 5, max_degree: int = 5):
     """Ramas (LÍNEAS y TRANSFORMADORES) por GRADO de conexión desde la subestación de la planta.
 
     BFS a NIVEL DE TERMINAL: el grado = nº de subestaciones cruzadas (los puntos de derivación/tap, sin
     subestación, se atraviesan sin sumar grado; los acoples conectan barras dentro de una subestación).
     Así una subestación radial de 69 kV que se conecta por un tap a una línea, o por un trafo a 138 kV,
-    sí alcanza a sus vecinas. Siempre llega al 2.º grado; si el total es < min_count, extiende al 3.er.
-    Devuelve [(rama, grado, es_linea)] (solo líneas y trafos; los acoples son solo para atravesar)."""
+    sí alcanza a sus vecinas. SIEMPRE se analizan ≥ min_count subestaciones/líneas: se sube de grado
+    (1.º, 2.º, 3.º…) hasta alcanzarlas. Devuelve [(rama, grado, es_linea)] (acoples sólo para atravesar)."""
     from collections import deque
 
     def subname(t):
@@ -296,19 +311,59 @@ def _local_branches_by_degree(app, sub, min_count: int = 5, max_degree: int = 3)
         kv = max((t.GetAttribute("uknom") for t in ts), default=0.0)
         out.append((br, deg, is_line, kv))
 
-    # Selección: las locales de 1.er/2.º grado (3.er si hay pocas) + las de MAYOR tensión cercanas
-    # (hasta 3.er grado). En una barra de 69 kV interesa incluir las líneas de 138/345 kV próximas.
+    # Cutoff: subir de grado hasta analizar ≥ min_count SUBESTACIONES vecinas y ≥ min_count LÍNEAS
+    # (siempre ≥ 2.º grado). Así una subestación radial se estudia hasta el 3.er, 4.º… grado.
     plant_kv = max((t.GetAttribute("uknom") for t in plant_terms), default=0.0)
-    hv = sorted([b for b in out if b[3] > plant_kv + 1.0], key=lambda x: (x[1], -x[3]))
-    local = [b for b in out if b[3] <= plant_kv + 1.0]
-    near = sorted([b for b in local if b[1] <= 2], key=lambda x: (x[1], -x[3]))
-    if len(near) < min_count:
-        near += sorted([b for b in local if b[1] == 3], key=lambda x: (x[1], -x[3]))
-    chosen = hv[:8] + near
+    neigh_degs = sorted(d for s, d in sub_dist.items() if d >= 1)        # grados de subestaciones vecinas
+    line_degs = sorted(d for _, d, il, _ in out if il)
+
+    def _kth(degs, k):
+        return degs[k - 1] if len(degs) >= k else (degs[-1] if degs else 2)
+
+    cutoff = min(max_degree, max(2, _kth(neigh_degs, min_count), _kth(line_degs, min_count)))
+    local = sorted([b for b in out if b[1] <= cutoff], key=lambda x: (x[1], -x[3]))
+    # En barras de baja tensión, incluir además las líneas de MAYOR tensión cercanas (aunque queden fuera del cutoff).
+    hv = sorted([b for b in out if b[3] > plant_kv + 1.0 and b[1] > cutoff], key=lambda x: (x[1], -x[3]))
+    chosen = hv[:8] + local
+
+    # Garantizar ≥ min_count subestaciones vecinas: si la topología (fragmentada por la conmutación
+    # detallada de interruptores) alcanza menos, completar con las subestaciones MÁS CERCANAS por
+    # coordenadas, en grados sucesivos. Así una barra radial igual se estudia con ≥5 subestaciones.
+    covered = {s for br, d, il, kv in chosen for s in (subname(t) for t in _branch_terms(app, br))
+               if s and s != sub.loc_name}
+    if len(covered) < min_count:
+        coords = _substation_coords()
+        p = coords.get(sub.loc_name)
+        if p:
+            lines_by_sub = {}
+            for ln in app.GetCalcRelevantObjects("*.ElmLne"):
+                try:
+                    if ln.GetAttribute("outserv") != 0:
+                        continue
+                except Exception:
+                    pass
+                for t in _branch_terms(app, ln):
+                    s = subname(t)
+                    if s:
+                        lines_by_sub.setdefault(s, []).append(ln)
+            nearest = sorted((((p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2) ** 0.5, name)
+                             for name, c in coords.items()
+                             if name != sub.loc_name and name not in covered and name in lines_by_sub)
+            deg = max((d for _, d, _, _ in chosen), default=2) + 1
+            for _dist, name in nearest:
+                if len(covered) >= min_count:
+                    break
+                ln = max(lines_by_sub[name],
+                         key=lambda l: max((t.GetAttribute("uknom") for t in _branch_terms(app, l)), default=0))
+                kv = max((t.GetAttribute("uknom") for t in _branch_terms(app, ln)), default=0.0)
+                chosen.append((ln, deg, True, kv))
+                covered.add(name)
+                deg += 1
+
     return [(br, deg, is_line) for br, deg, is_line, kv in chosen]
 
 
-def _local_lines_by_degree(app, sub, min_count: int = 5, max_degree: int = 3):
+def _local_lines_by_degree(app, sub, min_count: int = 5, max_degree: int = 5):
     """Solo las LÍNEAS por grado (para N-1; el barrido cruza trafos para alcanzar líneas lejanas)."""
     return [(b, d) for b, d, is_line in _local_branches_by_degree(app, sub, min_count, max_degree) if is_line]
 
