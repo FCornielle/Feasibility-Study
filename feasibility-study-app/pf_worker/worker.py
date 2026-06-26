@@ -77,13 +77,33 @@ def process_one(app, store: JobStore) -> bool:
 
 def main():
     once = "--once" in sys.argv
-    print("Conectando a PowerFactory...")
-    app = connect.get_app()
+    # Reintentar la conexión: si el worker anterior crasheó (p.ej. RMS faltado pesado), la licencia
+    # de PowerFactory tarda en liberarse; reintentamos en vez de morir.
+    app = None
+    for attempt in range(15):
+        try:
+            print(f"Conectando a PowerFactory... (intento {attempt + 1})", flush=True)
+            app = connect.get_app()
+            break
+        except Exception as e:  # noqa: BLE001
+            print(f"  PF no disponible ({e}); reintento en 12 s", flush=True)
+            time.sleep(12)
+    if app is None:
+        print("No se pudo conectar a PowerFactory tras varios intentos.", flush=True)
+        return
     print("Proyecto activo:", app.GetActiveProject().loc_name)
     swept = PFRunSandbox.sweep_orphans(app)
     if swept:
         print(f"Barridos {swept} objetos huérfanos de corridas previas.")
     store = JobStore(RESULTS_DIR)
+    # Marcar como error los jobs que quedaron 'running' (un worker anterior crasheó a mitad): así no
+    # bloquean la cola ni se vuelven a ejecutar (evita re-crashear con el mismo escenario pesado).
+    for j in store.list():
+        if j.get("status") == "running":
+            store.update(j["run_id"], status="error", phase="error",
+                         error=("La corrida anterior interrumpió el motor de PowerFactory (escenario muy "
+                                "pesado para el RMS con falla). Reintenta con una hora nocturna (P20–P05)."))
+            print(f"Job huérfano {j['run_id']} marcado como error.", flush=True)
     print(f"Worker listo (once={once}). Esperando trabajos en {store.dir}")
     while True:
         did = process_one(app, store)

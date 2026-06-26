@@ -201,13 +201,26 @@ def role_shell():
     os.environ["APP_PORT"] = str(port)
     env = dict(os.environ)
 
-    worker_proc = subprocess.Popen(_self_cmd("--worker"), env=env)
+    import threading
+    procs = {"worker": subprocess.Popen(_self_cmd("--worker"), env=env), "stop": False}
     backend_proc = subprocess.Popen(_self_cmd("--backend"), env=env)
+
+    def _worker_watchdog():
+        # Reinicia el worker si muere (p.ej. el motor PF crashea en un RMS pesado): así la cola no se
+        # bloquea. Espera para que se libere la licencia; el nuevo worker marca el job 'running' como error.
+        while not procs["stop"]:
+            procs["worker"].wait()
+            if procs["stop"]:
+                break
+            time.sleep(5)
+            procs["worker"] = subprocess.Popen(_self_cmd("--worker"), env=env)
+    threading.Thread(target=_worker_watchdog, daemon=True).start()
 
     if not splash_wait(port):
         _error("El servidor interno no respondió a tiempo.\n"
                "Revisa que PowerFactory esté disponible y la licencia libre, y reintenta.")
-        for p in (worker_proc, backend_proc):
+        procs["stop"] = True
+        for p in (procs["worker"], backend_proc):
             try:
                 p.terminate()
             except Exception:
@@ -223,7 +236,8 @@ def role_shell():
     try:
         webview.start()
     finally:
-        for p in (worker_proc, backend_proc):
+        procs["stop"] = True
+        for p in (procs["worker"], backend_proc):
             try:
                 p.terminate()
             except Exception:
