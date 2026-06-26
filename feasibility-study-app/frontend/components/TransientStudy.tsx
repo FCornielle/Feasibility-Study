@@ -118,9 +118,9 @@ export default function TransientStudy() {
               {running ? "Ejecutando…" : "Ejecutar Transient Stability"}
             </button>
             <p className="phase" style={{ marginTop: 8, color: "var(--warn)" }}>
-              ⚠ Estudio pesado: busca el tiempo crítico de despeje (CCT) con varias simulaciones RMS de falla
-              franca en el PCC y 2 vecinas, sin y con planta. Tarda <b>varios minutos</b>; el RMS faltado es
-              mucho más lento en horas de alta generación — usa una hora nocturna (P20–P05).
+              ⚠ Estudio pesado (RMS con falla). Corre rápido (~1 min) en <b>horas nocturnas (P20–P05)</b>; en
+              horas pico el RMS faltado es muy lento, así que el estudio se <b>acota por tiempo</b> y puede
+              mostrar resultados parciales. Para resultados completos, usa una hora nocturna.
             </p>
             {job && <RunProgress job={job} />}
             {err && <div className="err">{err}</div>}
@@ -138,19 +138,43 @@ export default function TransientStudy() {
             </div>
           )}
 
-          {/* Tabla de tiempos críticos de despeje (Cuadro 18) */}
+          {result.truncated && (
+            <div className="card" style={{ borderLeft: "4px solid var(--warn)", background: "rgba(243,156,18,0.08)" }}>
+              <h3 style={{ color: "var(--warn)", margin: 0 }}>⏱ Resultados parciales (acotado por tiempo)</h3>
+              <p className="phase" style={{ marginTop: 6 }}>
+                En esta hora el RMS faltado es muy lento, así que el estudio se detuvo para no tardar demasiado
+                y muestra solo las barras que alcanzó. Para el estudio completo usa una hora nocturna (P20–P05).
+              </p>
+            </div>
+          )}
+
+          {/* Tabla de estabilidad transitoria (Cuadro 18) */}
           <div className="card">
-            <h3>Tiempo crítico de despeje (CCT) — falla trifásica sin impedancia, con / sin planta</h3>
+            <h3>Estabilidad transitoria — falla trifásica despejada, con / sin planta</h3>
             <ComplianceTable compliance={result.compliance} />
             <div style={{ margin: "10px 0" }}><CCTTable rows={result.cct_table ?? []} /></div>
-            <p className="phase">
-              Referencia de ángulo: <b>{result.reference_machine}</b> (slack). El CCT es el máximo tiempo de
-              despeje sin pérdida de sincronismo (ángulo de rotor relativo &lt; 180°) ni sobrevelocidad &gt; 5 %.
-              Valores en pasos gruesos; la planta no debe reducir el CCT.
-            </p>
+            <p className="phase">{result.method}</p>
           </div>
 
-          {/* Una sección de gráficos por cada punto de falla, despejado a su CCT (mismo de la tabla) */}
+          {/* Corrida BASE sin falla: tensión, frecuencia y velocidad planas (no hay influencia antes de la falla) */}
+          {result.baseline && (
+            <div className="card">
+              <h3>Corrida base — sin falla (5 s): no hay perturbación antes de las fallas</h3>
+              <div className="grid2">
+                <SpeedChart series={result.baseline.voltages} title="Tensiones de las barras [pu]" />
+                <SpeedChart series={result.baseline.frequency} title="Frecuencia [Hz]" />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <SpeedChart series={result.baseline.speeds} title="Velocidad de los generadores [pu]" />
+              </div>
+              <p className="phase" style={{ marginTop: 8 }}>
+                Tensión, frecuencia y velocidad estables y planas con la planta conectada → el sistema parte de
+                un punto de equilibrio antes de simular cada falla.
+              </p>
+            </div>
+          )}
+
+          {/* Una sección de gráficos por cada punto de falla */}
           {(result.cases ?? []).map((c: any, i: number) => (
             <div className="card" key={i}>
               <h3>
@@ -167,9 +191,10 @@ export default function TransientStudy() {
             </div>
           ))}
           <p className="phase">
-            Cada sección: falla trifásica despejada al CCT de la tabla. Las tensiones se recuperan y los
-            ángulos (|pu| &lt; 1) y velocidades se estabilizan → el sincronismo se mantiene. Generadores
-            monitoreados (los más distantes de la falla): {(result.monitored_machines ?? []).join(", ")}.
+            Cada sección: falla trifásica severa en la barra, despejada. Estable si las tensiones se recuperan
+            y los ángulos de rotor (|pu| &lt; 1, relativos al slack) y velocidades se estabilizan → no se pierde
+            el sincronismo. Generadores monitoreados (los más distantes de la falla):
+            {" "}{(result.monitored_machines ?? []).join(", ")}.
           </p>
         </>
       )}
