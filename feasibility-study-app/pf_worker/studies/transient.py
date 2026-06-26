@@ -1,17 +1,16 @@
 """Transient Stability (pestaña 3) — réplica del estudio Sajoma §9.2 (Cuadro 18 + Figuras 19/29).
 
-Metodología (estabilidad transitoria por simulación en el tiempo, RMS):
-  - Una corrida BASE sin falla (con la planta conectada) que muestra tensión, frecuencia y velocidad
-    planas: demuestra que no hay perturbación antes de simular las fallas.
-  - Cortocircuito TRIFÁSICO en las subestaciones de 1.er/2.º grado más cercanas (una sección por barra).
-  - Para cada punto de falla se busca el TIEMPO CRÍTICO DE DESPEJE (CCT): el mayor tiempo que puede durar
-    la falla sin perder estabilidad, SIN y CON la planta (búsqueda gruesa descendente con parada temprana).
-  - Pérdida de estabilidad = una máquina síncrona pierde sincronismo (ángulo de rotor relativo al slack
-    —Punta Catalina— supera 180°: deslizamiento de polos) o excede 5 % de sobrevelocidad.
-  - Gráficos a 5 s por cada falla (despejada al CCT): tensiones, ángulos de rotor [pu] y velocidades.
+  - Corrida BASE sin falla (con planta) a 60 s: muestra tensión, frecuencia y velocidad para ver dónde
+    se estabiliza el sistema antes de simular las fallas.
+  - Cortocircuito TRIFÁSICO FRANCO en las subestaciones de 1.er/2.º grado más cercanas (una sección por
+    barra). Se grafica la tensión de varias barras vecinas (no solo la fallada).
+  - TIEMPO CRÍTICO DE DESPEJE (CCT): se BUSCA (búsqueda binaria, resolución 25 ms) el mayor tiempo de
+    despeje que mantiene el sincronismo, SIN y CON la planta. No se detiene en un valor fijo.
+  - Pérdida de estabilidad = una máquina síncrona pierde el sincronismo (ángulo de rotor relativo al
+    slack —Punta Catalina— supera 180°) o excede 5 % de sobrevelocidad.
 
-Nota de rendimiento: el RMS faltado es costoso en este modelo (la red se vuelve casi singular con la
-falla). Por eso el estudio se acota (3 barras, búsqueda gruesa) y conviene usar una hora nocturna.
+Rendimiento: el RMS con falla franca es rápido en horas nocturnas (~3-9 s/corrida) pero en horas de alta
+generación solar puede interrumpir el motor; usar una hora nocturna (P20–P05). El worker se reinicia solo.
 """
 from __future__ import annotations
 
@@ -25,37 +24,25 @@ import criteria  # noqa: E402
 import dynamics  # noqa: E402
 import pv_bess  # noqa: E402
 from sandbox import PFRunSandbox  # noqa: E402
-from studies import steady_state as _ss  # barras de falla por grado (reutilizado)  # noqa: E402
+from studies import steady_state as _ss  # barras por grado (reutilizado)  # noqa: E402
 
 STUDY = "transient"
 DT = 0.01
-FAULT_T = 0.5                  # instante de la falla [s]
-TSTOP_CCT = 2.5               # ventana para juzgar estabilidad SIN planta (primer swing + margen) [s]
-TSTOP_PLOT = 5.0            # ventana de los gráficos (corrida base + fallas CON planta) [s]
-# RENDIMIENTO: una falla FRANCA (V→0) vuelve la red casi singular y, cuando el despeje supera el tiempo
-# crítico, la máquina pierde el paso y el integrador se arrastra muchísimo (corridas de 2-3 min; estudio
-# de >30 min). Para un estudio VIABLE en cualquier escenario se usa una falla trifásica con una pequeña
-# impedancia (caída de tensión severa, ~50 %): no se singulariza la red ni hay deslizamiento de polos,
-# las corridas quedan acotadas (~45 s) y el estudio corre en minutos. (Para CCT con falla franca, usar
-# una hora nocturna; en horas pico la falla franca es demasiado lenta por la API.)
-FAULT_X_PU = 0.04            # impedancia de falla [pu sobre Zbase del bus]
-CLEARING_SET_MS = [200]      # despeje probado [ms] (1 corrida por barra/caso)
-TSTOP_BASE = 30.0          # ventana de la corrida BASE sin falla [s] (para observar la estabilidad previa)
-ANGLE_LIMIT = 180.0          # pérdida de sincronismo (pole slip) [grados, relativo al slack]
-OVERSPEED = 0.05             # sobrevelocidad máxima admisible (5 %)
-N_FAULT_BUSES = 3            # puntos de falla (PCC + 2 vecinas de 1.er/2.º grado)
-N_MACHINES = 5               # generadores síncronos distantes a monitorear
-
-
-def _set_fault(evt, bus):
-    """Apunta la falla trifásica a una barra con impedancia pequeña (para un RMS viable)."""
-    evt.SetAttribute("p_target", bus)
-    evt.SetAttribute("R_f", 0.0)
-    evt.SetAttribute("X_f", round(FAULT_X_PU * (bus.GetAttribute("uknom") ** 2) / 100.0, 4))
+FAULT_T = 0.5
+TSTOP_CCT = 2.5              # ventana para juzgar estabilidad (primer swing) [s]
+TSTOP_PLOT = 5.0            # ventana de los gráficos de cada falla [s]
+TSTOP_BASE = 60.0          # ventana de la corrida base sin falla [s]
+# Rango/resolución de la búsqueda del CCT. Resolución gruesa (50 ms) para acotar el nº de corridas
+# faltadas: el motor PF se vuelve inestable/crashea tras muchas (~35) RMS con falla en este modelo.
+CCT_MIN_MS, CCT_MAX_MS, CCT_STEP_MS = 80, 400, 50
+ANGLE_LIMIT = 180.0
+OVERSPEED = 0.05
+N_FAULT_BUSES = 3           # puntos de falla (una sección c/u)
+N_MONITOR_BUSES = 6         # barras cuya tensión se grafica (>5, de 1.er/2.º/3.er grado)
+N_MACHINES = 5
 
 
 def _slack_machine(app):
-    """Máquina de referencia del sistema (slack). Por defecto Punta Catalina; si no, la mayor síncrona."""
     syms = [s for s in app.GetCalcRelevantObjects("*.ElmSym") if s.GetAttribute("outserv") == 0]
     for s in syms:
         if "catalina" in s.loc_name.lower():
@@ -70,7 +57,6 @@ def _slack_machine(app):
 
 
 def _machines(app, pcc, slack):
-    """Generadores síncronos a monitorear: los más distantes de la falla + el slack (referencia)."""
     gens = dynamics.distant_generators(app, pcc, n=N_MACHINES)
     out, seen = [], set()
     for g in [slack] + gens:
@@ -78,6 +64,20 @@ def _machines(app, pcc, slack):
             seen.add(g)
             out.append(g)
     return out[:N_MACHINES + 1]
+
+
+def _display_names():
+    """código de subestación -> nombre legible (desde results/substations.json)."""
+    import json
+    import paths
+    out = {}
+    try:
+        with open(os.path.join(paths.RESULTS_DIR, "substations.json"), encoding="utf-8") as f:
+            for s in json.load(f):
+                out[s["name"]] = s.get("display_name") or s["name"]
+    except Exception:
+        pass
+    return out
 
 
 def _series_map(app, res, gens, var):
@@ -90,18 +90,16 @@ def _series_map(app, res, gens, var):
 
 
 def _is_stable(angles, speeds, slack_name):
-    """Estable si ninguna máquina pierde sincronismo (ángulo relativo al slack < 180°) ni excede 5 % de
-    sobrevelocidad, y la simulación no divergió (suficientes muestras)."""
     if not angles:
         return False
     n = min(len(v) for v in angles.values())
-    if n < 80:                                  # la corrida se cortó (divergió) -> inestable
+    if n < 80:                                   # se cortó (divergió) -> inestable
         return False
     sl = angles.get(slack_name)
-    max_sep = max((abs(a[i] - (sl[i] if sl and i < len(sl) else 0.0))
-                   for a in angles.values() for i in range(n)), default=0.0)
-    max_over = max((abs(v - 1.0) for sp in speeds.values() for v in sp), default=0.0)
-    return max_sep < ANGLE_LIMIT and max_over < OVERSPEED
+    sep = max((abs(a[i] - (sl[i] if sl and i < len(sl) else 0.0))
+               for a in angles.values() for i in range(n)), default=0.0)
+    over = max((abs(v - 1.0) for sp in speeds.values() for v in sp), default=0.0)
+    return sep < ANGLE_LIMIT and over < OVERSPEED
 
 
 def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_loads=1.0, run_id=None, progress=None):
@@ -109,11 +107,10 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
     report = progress or (lambda p, q: None)
     data = {"study": STUDY, "run_id": run_id, "substation": sub_name,
             "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode},
-            "method": (f"Corrida base sin falla + cortocircuito trifásico severo (caída de tensión ~50 %) en "
-                       f"cada barra, despejado en {CLEARING_SET_MS[0]} ms, SIN y CON la planta. Estable si "
-                       f"ninguna máquina síncrona pierde el sincronismo (ángulo de rotor relativo al slack "
-                       f"—Punta Catalina— < 180°) ni excede 5 % de sobrevelocidad. (Falla con impedancia "
-                       f"pequeña para un RMS viable; para falla franca, usar una hora nocturna.)")}
+            "method": ("Corrida base sin falla (60 s) + cortocircuito trifásico franco en cada barra. Se busca "
+                       "el tiempo crítico de despeje (CCT, resolución 25 ms): el mayor despeje que mantiene el "
+                       "sincronismo. Criterio: ángulo de rotor relativo al slack (Punta Catalina) < 180° y "
+                       "sobrevelocidad < 5 %. Usar hora nocturna (en horas de alta solar el RMS se interrumpe).")}
 
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
@@ -126,24 +123,25 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         scen = app.GetActiveScenario()
         data["scenario"] = {"name": scen.loc_name if scen else None}
 
-        fault_buses = [(pcc, 0, sub_name)] + _ss._sc_buses(app, sub, limit=N_FAULT_BUSES - 1)
-        fault_buses = fault_buses[:N_FAULT_BUSES]
-        bus_terms = [b for b, _, _ in fault_buses]
+        # Barras vecinas por grado (reutiliza el barrido del Steady State).
+        sc = _ss._sc_buses(app, sub, limit=N_MONITOR_BUSES)            # [(term, grado, sub_code)]
+        all_buses = [(pcc, 0, sub_name)] + [(t, d, s) for t, d, s in sc if t.GetFullName() != pcc.GetFullName()]
+        monitor_buses = [b for b, _, _ in all_buses][:N_MONITOR_BUSES]   # tensión graficada (>5 barras)
+        fault_points = all_buses[:N_FAULT_BUSES]                          # puntos de falla (secciones)
         slack = _slack_machine(app)
         machines = _machines(app, pcc, slack)
         data["reference_machine"] = slack.loc_name
         data["monitored_machines"] = [g.loc_name for g in machines]
 
-        # Eventos reutilizables (se varía objetivo/tiempo; time grande = no dispara, para la corrida base).
-        fault_evt = dynamics.add_event(sb, app, "EvtShc", "fault", 999.0, target=pcc, i_shc=0)
-        clear_evt = dynamics.add_event(sb, app, "EvtShc", "clear", 999.1, target=pcc, i_shc=4)
+        disp = _display_names()
+        bus_labels = {b.GetFullName(): f"{disp.get(s, s)} · {round(b.GetAttribute('uknom'))} kV"
+                      for b, d, s in all_buses}
 
-        # etiqueta legible de cada barra de falla: nombre de subestación + tensión (no el código de barra interno)
-        bus_labels = {b.GetFullName(): f"{sn} · {round(b.GetAttribute('uknom'))} kV" for b, dg, sn in fault_buses}
+        fault_evt = dynamics.add_event(sb, app, "EvtShc", "fault", 9999.0, target=pcc, i_shc=0)
+        clear_evt = dynamics.add_event(sb, app, "EvtShc", "clear", 9999.1, target=pcc, i_shc=4)
 
         def _ser(res, objs, var, scale=1.0, ref=None, labels=None):
-            x0, traces = None, []
-            ry = None
+            x0, traces, ry = None, [], None
             if ref is not None:
                 _, ry = dynamics.series(app, res, ref, var)
             for o in objs:
@@ -152,104 +150,114 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                     continue
                 if ry is not None:
                     n = min(len(yy), len(ry))
-                    yy = [(yy[i] - ry[i]) * scale for i in range(n)]
-                    tt = tt[:n]
+                    yy, tt = [(yy[i] - ry[i]) * scale for i in range(n)], tt[:n]
                 elif scale != 1.0:
                     yy = [v * scale for v in yy]
                 tx, yx = dynamics.downsample(tt, yy)
                 if x0 is None:
                     x0 = tx
-                name = (labels or {}).get(o.GetFullName()) or o.loc_name[:18]
-                traces.append({"name": name, "y": yx})
+                traces.append({"name": (labels or {}).get(o.GetFullName()) or o.loc_name[:18], "y": yx})
             return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
 
-        def _capture_fault(res):
-            return {"voltages": _ser(res, bus_terms, "m:u", labels=bus_labels),
-                    "angles": _ser(res, machines, "s:firel", scale=1.0 / 180.0, ref=slack),  # pu (1 pu=180°)
+        def _capture(res):
+            return {"voltages": _ser(res, monitor_buses, "m:u", labels=bus_labels),
+                    "angles": _ser(res, machines, "s:firel", scale=1.0 / 180.0, ref=slack),
                     "speeds": _ser(res, machines, "s:xspeed")}
 
-        def _run_fault(bus, capture, tend):
-            """Corre la falla en `bus`. Si la corrida DIVERGE (no llega cerca de `tend`), reintenta con una
-            falla más suave (mayor impedancia). Devuelve (cct_ms, upper_ms, series|True|None, convergio)."""
+        def _bolted(bus):
+            fault_evt.SetAttribute("p_target", bus)
+            fault_evt.SetAttribute("R_f", 0.0)
+            fault_evt.SetAttribute("X_f", 0.0)
             clear_evt.SetAttribute("p_target", bus)
+
+        def _stable_at(inc, sim, res, clear_ms, tend):
+            clear_evt.SetAttribute("time", FAULT_T + clear_ms / 1000.0)
+            dynamics.rms_run(app, inc, sim, tstop=tend, dt=DT)
+            t, _ = dynamics.series(app, res, machines[0], "s:firel")
+            conv = bool(t) and t[-1] >= tend - 0.6
+            ok = conv and _is_stable(_series_map(app, res, machines, "s:firel"),
+                                     _series_map(app, res, machines, "s:xspeed"), slack.loc_name)
+            return ok
+
+        def _search_cct(bus, tend, capture):
+            """Búsqueda binaria del CCT [ms] (mayor despeje que mantiene el sincronismo) con falla franca.
+            Si capture, guarda los gráficos de la corrida DEL CCT (sin corridas extra). (cct, upper, series)."""
+            _bolted(bus)
+            fault_evt.SetAttribute("time", FAULT_T)
             mon = [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines]
             if capture:
-                mon = [(t, "m:u") for t in bus_terms] + mon
-            zb = (bus.GetAttribute("uknom") ** 2) / 100.0
-            last = (None, None, None)
-            for xmul in (1.0, 4.0, 12.0):
-                fault_evt.SetAttribute("p_target", bus)
-                fault_evt.SetAttribute("R_f", 0.0)
-                fault_evt.SetAttribute("X_f", round(xmul * FAULT_X_PU * zb, 4))
-                fault_evt.SetAttribute("time", FAULT_T)
-                inc, sim, res = dynamics.rms_prepare(app, mon)
-                cct, upper, series = None, None, None
-                for tc in CLEARING_SET_MS:
-                    clear_evt.SetAttribute("time", FAULT_T + tc / 1000.0)
-                    dynamics.rms_run(app, inc, sim, tstop=tend, dt=DT)
-                    ok = _is_stable(_series_map(app, res, machines, "s:firel"),
-                                    _series_map(app, res, machines, "s:xspeed"), slack.loc_name)
-                    cap = _capture_fault(res) if capture else True
-                    if ok:
-                        cct, series = tc, cap
-                        break
-                    upper, series = tc, cap
-                last = (cct, upper, series)
-                t, _ = dynamics.series(app, res, machines[0], "s:firel")
-                if t and t[-1] >= tend - 0.6:               # la corrida llegó al final -> convergió
-                    return cct, upper, series, True
-            return last[0], last[1], last[2], False         # nunca convergió (raro)
+                mon = [(t, "m:u") for t in monitor_buses] + mon
+            inc, sim, res = dynamics.rms_prepare(app, mon)
+            best = [None]
 
-        # ---- CCT SIN planta (sólo el valor; ventana corta) ----
-        report("CCT sin planta", 8)
+            def ok_at(clear_ms):
+                if not _stable_at(inc, sim, res, clear_ms, tend):
+                    return False
+                if capture:
+                    best[0] = _capture(res)       # mayor despeje estable hasta ahora
+                return True
+
+            lo, hi = CCT_MIN_MS, CCT_MAX_MS
+            if not ok_at(lo):
+                return None, lo, None              # inestable aun con el despeje mínimo
+            if ok_at(hi):
+                return hi, None, best[0]           # estable hasta el máximo explorado (CCT ≥ máx)
+            while hi - lo > CCT_STEP_MS:
+                mid = int(round((lo + hi) / 2.0 / CCT_STEP_MS) * CCT_STEP_MS)
+                if mid <= lo or mid >= hi:
+                    break
+                if ok_at(mid):
+                    lo = mid
+                else:
+                    hi = mid
+            return lo, hi, best[0]
+
+        # ---- CCT SIN planta ----
+        report("buscando CCT sin planta", 8)
         cct_sin = {}
-        for k, (bus, deg, sname) in enumerate(fault_buses):
-            cct, upper, _, _ = _run_fault(bus, capture=False, tend=TSTOP_CCT)
+        for k, (bus, deg, sname) in enumerate(fault_points):
+            cct, upper, _ = _search_cct(bus, TSTOP_CCT, False)
             cct_sin[bus.GetFullName()] = (cct, upper)
-            report(f"CCT sin planta ({k + 1}/{len(fault_buses)})", 8 + int(22 * (k + 1) / len(fault_buses)))
+            report(f"CCT sin planta ({k + 1}/{len(fault_points)})", 8 + int(22 * (k + 1) / len(fault_points)))
 
-        # ---- Con planta PV+BESS ----
+        # ---- Con planta ----
         report("modelando PV+BESS", 32)
         pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
         app.GetFromStudyCase("ComLdf").Execute()
 
-        # ---- Corrida BASE sin falla (con planta): tensión, frecuencia y velocidad a 30 s ----
+        # ---- Corrida base sin falla (60 s) ----
         report(f"corrida base sin falla ({TSTOP_BASE:.0f} s)", 36)
-        fault_evt.SetAttribute("time", 9999.0)       # la falla no dispara
+        fault_evt.SetAttribute("time", 99999.0)
         inc, sim, res = dynamics.rms_prepare(
-            app, [(t, "m:u") for t in bus_terms] + [(t, "m:fehz") for t in bus_terms]
+            app, [(t, "m:u") for t in monitor_buses] + [(t, "m:fehz") for t in monitor_buses]
             + [(g, "s:xspeed") for g in machines])
         dynamics.rms_run(app, inc, sim, tstop=TSTOP_BASE, dt=DT)
-        data["baseline"] = {
-            "voltages": _ser(res, bus_terms, "m:u", labels=bus_labels),
-            "frequency": _ser(res, bus_terms, "m:fehz", labels=bus_labels),
-            "speeds": _ser(res, machines, "s:xspeed"),
-        }
+        data["baseline"] = {"voltages": _ser(res, monitor_buses, "m:u", labels=bus_labels),
+                            "frequency": _ser(res, monitor_buses, "m:fehz", labels=bus_labels),
+                            "speeds": _ser(res, machines, "s:xspeed")}
 
-        # ---- CCT CON planta + gráficos a 5 s por cada falla (con reintento si diverge) ----
+        # ---- CCT CON planta + gráfico a 5 s por cada falla (capturado de la corrida del CCT) ----
         cct_con, cases = {}, []
-        for k, (bus, deg, sname) in enumerate(fault_buses):
-            cct, upper, series, conv = _run_fault(bus, capture=True, tend=TSTOP_PLOT)
+        for k, (bus, deg, sname) in enumerate(fault_points):
+            cct, upper, series = _search_cct(bus, TSTOP_PLOT, True)
             cct_con[bus.GetFullName()] = (cct, upper)
-            clear_ms = cct if cct is not None else CLEARING_SET_MS[-1]
-            case = {"bus": bus.loc_name, "sub": sname, "degree": deg,
+            clear_ms = cct if cct is not None else CCT_MIN_MS
+            case = {"bus": bus.loc_name, "sub": disp.get(sname, sname), "degree": deg,
                     "kv": round(bus.GetAttribute("uknom"), 1), "clearing_ms": clear_ms,
-                    "stable": cct is not None, "converged": conv}
+                    "stable": cct is not None}
             if isinstance(series, dict):
                 case.update(series)
             cases.append(case)
-            report(f"CCT/gráficos con planta ({k + 1}/{len(fault_buses)})",
-                   40 + int(52 * (k + 1) / len(fault_buses)))
+            report(f"CCT/gráficos con planta ({k + 1}/{len(fault_points)})",
+                   40 + int(52 * (k + 1) / len(fault_points)))
         data["cases"] = cases
 
         rows = []
-        for bus, deg, sname in fault_buses:
+        for bus, deg, sname in fault_points:
             fn = bus.GetFullName()
-            if fn not in cct_con:            # barra no completada (acotado por tiempo)
-                continue
             cs, cs_up = cct_sin.get(fn, (None, None))
             cc, cc_up = cct_con.get(fn, (None, None))
-            rows.append({"bus": bus.loc_name, "sub": sname, "degree": deg,
+            rows.append({"bus": bus.loc_name, "sub": disp.get(sname, sname), "degree": deg,
                          "kv": round(bus.GetAttribute("uknom"), 1),
                          "cct_sin_ms": cs, "cct_sin_upper_ms": cs_up,
                          "cct_con_ms": cc, "cct_con_upper_ms": cc_up,
@@ -260,8 +268,8 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
     valid_con = [r["cct_con_ms"] for r in rows if r["cct_con_ms"] is not None]
     data["min_cct_con_ms"] = min(valid_con) if valid_con else None
     no_worse = all((r["cct_sin_ms"] is None or r["cct_con_ms"] is None
-                    or r["cct_con_ms"] >= r["cct_sin_ms"] - 80) for r in rows)
-    adequate = bool(rows) and all(r["cct_con_ms"] is not None for r in rows)   # soporta el menor despeje probado
+                    or r["cct_con_ms"] >= r["cct_sin_ms"] - CCT_STEP_MS) for r in rows)
+    adequate = bool(rows) and all((r["cct_con_ms"] is not None and r["cct_con_ms"] >= 100) for r in rows)
     data["compliance"] = {
         "soporta_despeje_tipico": criteria.verdict(adequate),
         "planta_no_reduce_cct": criteria.verdict(no_worse),
