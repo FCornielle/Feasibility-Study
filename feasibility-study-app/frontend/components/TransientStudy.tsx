@@ -159,7 +159,7 @@ export default function TransientStudy() {
           {/* Corrida BASE sin falla: tensión, frecuencia y velocidad planas (no hay influencia antes de la falla) */}
           {result.baseline && (
             <div className="card">
-              <h3>Corrida base — sin falla (5 s): no hay perturbación antes de las fallas</h3>
+              <h3>Corrida base — sin falla (30 s): estabilidad del sistema antes de las fallas</h3>
               <div className="grid2">
                 <SpeedChart series={result.baseline.voltages} title="Tensiones de las barras [pu]" />
                 <SpeedChart series={result.baseline.frequency} title="Frecuencia [Hz]" />

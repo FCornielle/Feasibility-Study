@@ -39,15 +39,12 @@ TSTOP_PLOT = 5.0            # ventana de los gráficos (corrida base + fallas CO
 # las corridas quedan acotadas (~45 s) y el estudio corre en minutos. (Para CCT con falla franca, usar
 # una hora nocturna; en horas pico la falla franca es demasiado lenta por la API.)
 FAULT_X_PU = 0.04            # impedancia de falla [pu sobre Zbase del bus]
-CLEARING_SET_MS = [200]      # despeje probado [ms] (1 corrida por barra/caso -> estudio acotado)
+CLEARING_SET_MS = [200]      # despeje probado [ms] (1 corrida por barra/caso)
+TSTOP_BASE = 30.0          # ventana de la corrida BASE sin falla [s] (para observar la estabilidad previa)
 ANGLE_LIMIT = 180.0          # pérdida de sincronismo (pole slip) [grados, relativo al slack]
 OVERSPEED = 0.05             # sobrevelocidad máxima admisible (5 %)
 N_FAULT_BUSES = 3            # puntos de falla (PCC + 2 vecinas de 1.er/2.º grado)
 N_MACHINES = 5               # generadores síncronos distantes a monitorear
-# Presupuesto de tiempo: en horas pico una corrida faltada puede arrastrarse; el estudio se ACOTA y
-# devuelve resultados parciales en vez de tardar media hora. (En horas nocturnas corre completo y rápido.)
-BUDGET_SIN_S = 150           # tope para la fase SIN planta [s]
-BUDGET_TOTAL_S = 360         # tope total [s]
 
 
 def _set_fault(evt, bus):
@@ -136,8 +133,6 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         machines = _machines(app, pcc, slack)
         data["reference_machine"] = slack.loc_name
         data["monitored_machines"] = [g.loc_name for g in machines]
-        t0 = time.time()
-        truncated = False
 
         # Eventos reutilizables (se varía objetivo/tiempo; time grande = no dispara, para la corrida base).
         fault_evt = dynamics.add_event(sb, app, "EvtShc", "fault", 999.0, target=pcc, i_shc=0)
@@ -173,9 +168,6 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         report("CCT sin planta", 8)
         cct_sin = {}
         for k, (bus, deg, sname) in enumerate(fault_buses):
-            if k > 0 and time.time() - t0 > BUDGET_SIN_S:    # acotar la fase sin planta
-                truncated = True
-                break
             _set_fault(fault_evt, bus)
             clear_evt.SetAttribute("p_target", bus)
             inc, sim, res = dynamics.rms_prepare(
@@ -199,13 +191,13 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
         app.GetFromStudyCase("ComLdf").Execute()
 
-        # ---- Corrida BASE sin falla (con planta): tensión, frecuencia y velocidad planas (5 s) ----
-        report("corrida base sin falla (5 s)", 36)
-        fault_evt.SetAttribute("time", 999.0)        # la falla no dispara
+        # ---- Corrida BASE sin falla (con planta): tensión, frecuencia y velocidad a 30 s ----
+        report(f"corrida base sin falla ({TSTOP_BASE:.0f} s)", 36)
+        fault_evt.SetAttribute("time", 9999.0)       # la falla no dispara
         inc, sim, res = dynamics.rms_prepare(
             app, [(t, "m:u") for t in bus_terms] + [(t, "m:fehz") for t in bus_terms]
             + [(g, "s:xspeed") for g in machines])
-        dynamics.rms_run(app, inc, sim, tstop=TSTOP_PLOT, dt=DT)
+        dynamics.rms_run(app, inc, sim, tstop=TSTOP_BASE, dt=DT)
         data["baseline"] = {
             "voltages": _ser(res, bus_terms, "m:u"),
             "frequency": _ser(res, bus_terms, "m:fehz"),
@@ -216,9 +208,6 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         fault_evt.SetAttribute("time", FAULT_T)
         cct_con, cases = {}, []
         for k, (bus, deg, sname) in enumerate(fault_buses):
-            if k > 0 and time.time() - t0 > BUDGET_TOTAL_S:   # acotar el total -> resultados parciales
-                truncated = True
-                break
             _set_fault(fault_evt, bus)
             clear_evt.SetAttribute("p_target", bus)
             inc, sim, res = dynamics.rms_prepare(
@@ -256,7 +245,6 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                          "cct_con_ms": cc, "cct_con_upper_ms": cc_up,
                          "delta_ms": (cc - cs) if (cs is not None and cc is not None) else None})
         data["cct_table"] = rows
-        data["truncated"] = truncated
 
     report("evaluando", 96)
     valid_con = [r["cct_con_ms"] for r in rows if r["cct_con_ms"] is not None]
