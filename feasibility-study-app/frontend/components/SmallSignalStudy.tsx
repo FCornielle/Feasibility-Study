@@ -163,11 +163,11 @@ export default function SmallSignalStudy() {
             <div className="grid2">
               <div>
                 <h4 style={{ margin: "0 0 4px", color: "var(--warn)" }}>● SIN planta</h4>
-                <SpeedChart series={result.speeds?.sin_planta} title="Velocidad de rotores [pu]" />
+                <SpeedChart series={result.speeds?.sin_planta} title="Velocidad de rotores" yLabel="ω [pu]" />
               </div>
               <div>
                 <h4 style={{ margin: "0 0 4px", color: "var(--accent)" }}>✚ CON planta</h4>
-                <SpeedChart series={result.speeds?.con_planta} title="Velocidad de rotores [pu]" />
+                <SpeedChart series={result.speeds?.con_planta} title="Velocidad de rotores" yLabel="ω [pu]" />
               </div>
             </div>
             <p className="phase" style={{ marginTop: 8 }}>

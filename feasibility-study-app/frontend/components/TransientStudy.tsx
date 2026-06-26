@@ -161,11 +161,11 @@ export default function TransientStudy() {
             <div className="card">
               <h3>Corrida base — sin falla (30 s): estabilidad del sistema antes de las fallas</h3>
               <div className="grid2">
-                <SpeedChart series={result.baseline.voltages} title="Tensiones de las barras [pu]" />
-                <SpeedChart series={result.baseline.frequency} title="Frecuencia [Hz]" />
+                <SpeedChart series={result.baseline.voltages} title="Tensión de las barras" yLabel="u [pu]" />
+                <SpeedChart series={result.baseline.frequency} title="Frecuencia del sistema" yLabel="f [Hz]" />
               </div>
               <div style={{ marginTop: 10 }}>
-                <SpeedChart series={result.baseline.speeds} title="Velocidad de los generadores [pu]" />
+                <SpeedChart series={result.baseline.speeds} title="Velocidad de los generadores" yLabel="ω [pu]" />
               </div>
               <p className="phase" style={{ marginTop: 8 }}>
                 Tensión, frecuencia y velocidad estables y planas con la planta conectada → el sistema parte de
@@ -182,11 +182,11 @@ export default function TransientStudy() {
                 {c.degree === 0 ? " (PCC)" : ` (${c.degree}º grado)`} — despejada en {c.clearing_ms} ms (5 s)
               </h3>
               <div className="grid2">
-                <SpeedChart series={c.voltages} title="Tensiones de las barras [pu]" />
-                <SpeedChart series={c.angles} title="Ángulo de rotor [pu] (1 pu = 180° vs slack)" />
+                <SpeedChart series={c.voltages} title="Tensión de las barras" yLabel="u [pu]" />
+                <SpeedChart series={c.angles} title="Ángulo de rotor (vs slack Punta Catalina)" yLabel="δ [pu] (1 = 180°)" />
               </div>
               <div style={{ marginTop: 10 }}>
-                <SpeedChart series={c.speeds} title="Velocidad de los generadores [pu]" />
+                <SpeedChart series={c.speeds} title="Velocidad de los generadores" yLabel="ω [pu]" />
               </div>
             </div>
           ))}

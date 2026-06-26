@@ -138,7 +138,10 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         fault_evt = dynamics.add_event(sb, app, "EvtShc", "fault", 999.0, target=pcc, i_shc=0)
         clear_evt = dynamics.add_event(sb, app, "EvtShc", "clear", 999.1, target=pcc, i_shc=4)
 
-        def _ser(res, objs, var, scale=1.0, ref=None):
+        # etiqueta legible de cada barra de falla: nombre de subestación + tensión (no el código de barra interno)
+        bus_labels = {b.GetFullName(): f"{sn} · {round(b.GetAttribute('uknom'))} kV" for b, dg, sn in fault_buses}
+
+        def _ser(res, objs, var, scale=1.0, ref=None, labels=None):
             x0, traces = None, []
             ry = None
             if ref is not None:
@@ -156,33 +159,52 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                 tx, yx = dynamics.downsample(tt, yy)
                 if x0 is None:
                     x0 = tx
-                traces.append({"name": o.loc_name[:18], "y": yx})
+                name = (labels or {}).get(o.GetFullName()) or o.loc_name[:18]
+                traces.append({"name": name, "y": yx})
             return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
 
         def _capture_fault(res):
-            return {"voltages": _ser(res, bus_terms, "m:u"),
+            return {"voltages": _ser(res, bus_terms, "m:u", labels=bus_labels),
                     "angles": _ser(res, machines, "s:firel", scale=1.0 / 180.0, ref=slack),  # pu (1 pu=180°)
                     "speeds": _ser(res, machines, "s:xspeed")}
+
+        def _run_fault(bus, capture, tend):
+            """Corre la falla en `bus`. Si la corrida DIVERGE (no llega cerca de `tend`), reintenta con una
+            falla más suave (mayor impedancia). Devuelve (cct_ms, upper_ms, series|True|None, convergio)."""
+            clear_evt.SetAttribute("p_target", bus)
+            mon = [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines]
+            if capture:
+                mon = [(t, "m:u") for t in bus_terms] + mon
+            zb = (bus.GetAttribute("uknom") ** 2) / 100.0
+            last = (None, None, None)
+            for xmul in (1.0, 4.0, 12.0):
+                fault_evt.SetAttribute("p_target", bus)
+                fault_evt.SetAttribute("R_f", 0.0)
+                fault_evt.SetAttribute("X_f", round(xmul * FAULT_X_PU * zb, 4))
+                fault_evt.SetAttribute("time", FAULT_T)
+                inc, sim, res = dynamics.rms_prepare(app, mon)
+                cct, upper, series = None, None, None
+                for tc in CLEARING_SET_MS:
+                    clear_evt.SetAttribute("time", FAULT_T + tc / 1000.0)
+                    dynamics.rms_run(app, inc, sim, tstop=tend, dt=DT)
+                    ok = _is_stable(_series_map(app, res, machines, "s:firel"),
+                                    _series_map(app, res, machines, "s:xspeed"), slack.loc_name)
+                    cap = _capture_fault(res) if capture else True
+                    if ok:
+                        cct, series = tc, cap
+                        break
+                    upper, series = tc, cap
+                last = (cct, upper, series)
+                t, _ = dynamics.series(app, res, machines[0], "s:firel")
+                if t and t[-1] >= tend - 0.6:               # la corrida llegó al final -> convergió
+                    return cct, upper, series, True
+            return last[0], last[1], last[2], False         # nunca convergió (raro)
 
         # ---- CCT SIN planta (sólo el valor; ventana corta) ----
         report("CCT sin planta", 8)
         cct_sin = {}
         for k, (bus, deg, sname) in enumerate(fault_buses):
-            _set_fault(fault_evt, bus)
-            clear_evt.SetAttribute("p_target", bus)
-            inc, sim, res = dynamics.rms_prepare(
-                app, [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines])
-            fault_evt.SetAttribute("time", FAULT_T)
-            upper = None
-            cct = None
-            for tc in CLEARING_SET_MS:
-                clear_evt.SetAttribute("time", FAULT_T + tc / 1000.0)
-                dynamics.rms_run(app, inc, sim, tstop=TSTOP_CCT, dt=DT)
-                if _is_stable(_series_map(app, res, machines, "s:firel"),
-                              _series_map(app, res, machines, "s:xspeed"), slack.loc_name):
-                    cct = tc
-                    break
-                upper = tc
+            cct, upper, _, _ = _run_fault(bus, capture=False, tend=TSTOP_CCT)
             cct_sin[bus.GetFullName()] = (cct, upper)
             report(f"CCT sin planta ({k + 1}/{len(fault_buses)})", 8 + int(22 * (k + 1) / len(fault_buses)))
 
@@ -199,35 +221,23 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             + [(g, "s:xspeed") for g in machines])
         dynamics.rms_run(app, inc, sim, tstop=TSTOP_BASE, dt=DT)
         data["baseline"] = {
-            "voltages": _ser(res, bus_terms, "m:u"),
-            "frequency": _ser(res, bus_terms, "m:fehz"),
+            "voltages": _ser(res, bus_terms, "m:u", labels=bus_labels),
+            "frequency": _ser(res, bus_terms, "m:fehz", labels=bus_labels),
             "speeds": _ser(res, machines, "s:xspeed"),
         }
 
-        # ---- CCT CON planta + gráficos a 5 s por cada falla (capturados de la corrida al CCT) ----
-        fault_evt.SetAttribute("time", FAULT_T)
+        # ---- CCT CON planta + gráficos a 5 s por cada falla (con reintento si diverge) ----
         cct_con, cases = {}, []
         for k, (bus, deg, sname) in enumerate(fault_buses):
-            _set_fault(fault_evt, bus)
-            clear_evt.SetAttribute("p_target", bus)
-            inc, sim, res = dynamics.rms_prepare(
-                app, [(t, "m:u") for t in bus_terms]
-                + [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines])
-            upper, cct, series = None, None, None
-            for tc in CLEARING_SET_MS:
-                clear_evt.SetAttribute("time", FAULT_T + tc / 1000.0)
-                dynamics.rms_run(app, inc, sim, tstop=TSTOP_PLOT, dt=DT)
-                if _is_stable(_series_map(app, res, machines, "s:firel"),
-                              _series_map(app, res, machines, "s:xspeed"), slack.loc_name):
-                    cct, series = tc, _capture_fault(res)
-                    break
-                upper = tc
-                series = _capture_fault(res)        # si ninguno estable, queda el último (caso inestable)
+            cct, upper, series, conv = _run_fault(bus, capture=True, tend=TSTOP_PLOT)
             cct_con[bus.GetFullName()] = (cct, upper)
             clear_ms = cct if cct is not None else CLEARING_SET_MS[-1]
-            cases.append({"bus": bus.loc_name, "sub": sname, "degree": deg,
-                          "kv": round(bus.GetAttribute("uknom"), 1), "clearing_ms": clear_ms,
-                          "stable": cct is not None, **(series or {})})
+            case = {"bus": bus.loc_name, "sub": sname, "degree": deg,
+                    "kv": round(bus.GetAttribute("uknom"), 1), "clearing_ms": clear_ms,
+                    "stable": cct is not None, "converged": conv}
+            if isinstance(series, dict):
+                case.update(series)
+            cases.append(case)
             report(f"CCT/gráficos con planta ({k + 1}/{len(fault_buses)})",
                    40 + int(52 * (k + 1) / len(fault_buses)))
         data["cases"] = cases

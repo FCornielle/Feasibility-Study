@@ -163,18 +163,20 @@ export function EigenvalueChart({ sin, con }: { sin: Mode[]; con: Mode[] }) {
   );
 }
 
-export function SpeedChart({ series, title }: { series: any; title?: string }) {
+export function SpeedChart({ series, title, yLabel }: { series: any; title?: string; yLabel?: string }) {
   if (!series?.traces?.length)
-    return <ChartFailBox>Sin datos de velocidad: el RMS no produjo resultados (no convergió o sin generadores monitoreados).</ChartFailBox>;
+    return <ChartFailBox>Sin datos: el RMS no produjo resultados (no convergió o sin señales monitoreadas).</ChartFailBox>;
   return (
     <Plot
       data={series.traces.map((tr: any) => ({
-        x: series.x, y: tr.y, type: "scatter", mode: "lines", name: tr.name, line: { width: 1 },
+        x: series.x, y: tr.y, type: "scatter", mode: "lines", name: tr.name, line: { width: 1.3 },
       }))}
       layout={{
-        ...DARK, height: 340, title: title ?? "Velocidad de generadores [pu]",
-        legend: { orientation: "h", y: -0.25, font: { size: 9 } },
-        xaxis: { title: series.x_label }, yaxis: { title: "velocidad [pu]" }, margin: { l: 55, r: 15, t: 34, b: 70 },
+        ...DARK, height: 340,
+        title: { text: title ?? "", font: { size: 13, color: "#b8c4d2" } },
+        legend: { orientation: "h", y: -0.22, font: { size: 9 } },
+        xaxis: { title: series.x_label }, yaxis: { title: yLabel ?? "" },
+        margin: { l: 60, r: 15, t: 42, b: 70 },
       }}
       config={{ displayModeBar: false, responsive: true, scrollZoom: true }}
       style={{ width: "100%" }}
