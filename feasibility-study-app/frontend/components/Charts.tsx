@@ -19,9 +19,9 @@ export function VoltageChart({ base, plant }: { base: Bus[]; plant: Bus[] }) {
   return (
     <Plot
       data={[
-        { x: idx, y: base.map((b) => b.u_pu), mode: "markers", type: "scattergl", name: "sin planta",
+        { x: idx, y: base.map((b) => b.u_pu), mode: "markers", type: "scatter", name: "sin planta",
           marker: { size: 3, color: "#8aa0b4" } },
-        { x: idx, y: plant.map((b) => b.u_pu), mode: "markers", type: "scattergl", name: "con planta",
+        { x: idx, y: plant.map((b) => b.u_pu), mode: "markers", type: "scatter", name: "con planta",
           marker: { size: 3, color: "#2e86ff" } },
       ]}
       layout={{
@@ -46,7 +46,7 @@ export function SeriesChart({ series }: { series: Series }) {
   return (
     <Plot
       data={series.traces.map((tr, i) => ({
-        x: series.x, y: tr.y, type: "scattergl", mode: "lines", name: tr.name,
+        x: series.x, y: tr.y, type: "scatter", mode: "lines", name: tr.name,
         line: { color: PALETTE[i % PALETTE.length], width: 1.6 },
         yaxis: i === 0 ? "y" : "y2",
       }))}
@@ -169,7 +169,7 @@ export function SpeedChart({ series, title }: { series: any; title?: string }) {
   return (
     <Plot
       data={series.traces.map((tr: any) => ({
-        x: series.x, y: tr.y, type: "scattergl", mode: "lines", name: tr.name, line: { width: 1 },
+        x: series.x, y: tr.y, type: "scatter", mode: "lines", name: tr.name, line: { width: 1 },
       }))}
       layout={{
         ...DARK, height: 340, title: title ?? "Velocidad de generadores [pu]",
