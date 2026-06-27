@@ -33,9 +33,9 @@ FAULT_T = 0.5
 TSTOP_CCT = 2.0              # ventana de las corridas de búsqueda (corta: las inestables no se arrastran) [s]
 TSTOP_PLOT = 5.0            # ventana de los gráficos de cada falla [s]
 TSTOP_BASE = 60.0          # ventana de la corrida base sin falla [s]
-# Rango/resolución de la búsqueda del CCT. Resolución gruesa (50 ms) para acotar el nº de corridas
-# faltadas: el motor PF se vuelve inestable/crashea tras muchas (~35) RMS con falla en este modelo.
-CCT_MIN_MS, CCT_MAX_MS, CCT_STEP_MS = 80, 400, 50
+# Búsqueda del CCT por bisección exacta hasta CCT_TOL_MS (20 ms): el CCT reportado queda a <=20 ms
+# del punto real de pérdida de sincronismo (como el dtmax del DPL), sin disparar demasiadas corridas.
+CCT_MIN_MS, CCT_MAX_MS, CCT_TOL_MS = 80, 400, 20
 N_FAULT_BUSES = 3           # puntos de falla (una sección c/u)
 N_MONITOR_BUSES = 6         # barras cuya tensión se grafica (>5, de 1.er/2.º/3.er grado)
 N_MACHINES = 5
@@ -178,10 +178,8 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                 return None, lo                       # inestable aun con el despeje mínimo
             if _stable_at(inc, sim, res, hi, TSTOP_CCT):
                 return hi, None                       # estable hasta el máximo explorado (CCT ≥ máx)
-            while hi - lo > CCT_STEP_MS:
-                mid = int(round((lo + hi) / 2.0 / CCT_STEP_MS) * CCT_STEP_MS)
-                if mid <= lo or mid >= hi:
-                    break
+            while hi - lo > CCT_TOL_MS:               # bisección exacta hasta la tolerancia
+                mid = (lo + hi) // 2
                 if _stable_at(inc, sim, res, mid, TSTOP_CCT):
                     lo = mid
                 else:
@@ -274,7 +272,7 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
     valid_con = [r["cct_con_ms"] for r in rows if r["cct_con_ms"] is not None]
     data["min_cct_con_ms"] = min(valid_con) if valid_con else None
     no_worse = all((r["cct_sin_ms"] is None or r["cct_con_ms"] is None
-                    or r["cct_con_ms"] >= r["cct_sin_ms"] - CCT_STEP_MS) for r in rows)
+                    or r["cct_con_ms"] >= r["cct_sin_ms"] - 2 * CCT_TOL_MS) for r in rows)
     adequate = bool(rows) and all((r["cct_con_ms"] is not None and r["cct_con_ms"] >= 100) for r in rows)
     data["compliance"] = {
         "soporta_despeje_tipico": criteria.verdict(adequate),
