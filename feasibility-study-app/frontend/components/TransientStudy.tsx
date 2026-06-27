@@ -188,13 +188,19 @@ export default function TransientStudy() {
               <div style={{ marginTop: 10 }}>
                 <SpeedChart series={c.speeds} title="Velocidad de los generadores" yLabel="ω [pu]" />
               </div>
+              {c.machines?.length > 0 && (
+                <p className="phase" style={{ marginTop: 8 }}>
+                  Máquinas más comprometidas (mayor excursión angular ante esta falla):
+                  {" "}{c.machines.join(", ")}.
+                </p>
+              )}
             </div>
           ))}
           <p className="phase">
-            Cada sección: falla trifásica severa en la barra, despejada. Estable si las tensiones se recuperan
-            y los ángulos de rotor (|pu| &lt; 1, relativos al slack) y velocidades se estabilizan → no se pierde
-            el sincronismo. Generadores monitoreados (los más distantes de la falla):
-            {" "}{(result.monitored_machines ?? []).join(", ")}.
+            Cada sección: falla trifásica franca en la barra, despejada en su CCT. El CCT es el mayor despeje
+            sin que <b>ningún</b> generador síncrono del sistema pierda el sincronismo (señal nativa
+            <i> s:outofstep</i> de PowerFactory, evaluada en los {result.n_generators ?? "todos los"} generadores
+            en servicio). A ese despeje las tensiones se recuperan y los ángulos/velocidades se estabilizan.
           </p>
         </>
       )}

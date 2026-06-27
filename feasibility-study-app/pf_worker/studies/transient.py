@@ -4,10 +4,11 @@
     se estabiliza el sistema antes de simular las fallas.
   - Cortocircuito TRIFÁSICO FRANCO en las subestaciones de 1.er/2.º grado más cercanas (una sección por
     barra). Se grafica la tensión de varias barras vecinas (no solo la fallada).
-  - TIEMPO CRÍTICO DE DESPEJE (CCT): se BUSCA (búsqueda binaria, resolución 25 ms) el mayor tiempo de
-    despeje que mantiene el sincronismo, SIN y CON la planta. No se detiene en un valor fijo.
-  - Pérdida de estabilidad = una máquina síncrona pierde el sincronismo (ángulo de rotor relativo al
-    slack —Punta Catalina— supera 180°) o excede 5 % de sobrevelocidad.
+  - TIEMPO CRÍTICO DE DESPEJE (CCT): se BUSCA (búsqueda binaria) el mayor tiempo de despeje que mantiene
+    el sincronismo, SIN y CON la planta. No se detiene en un valor fijo.
+  - Pérdida de estabilidad = CUALQUIER máquina síncrona del sistema marca la señal nativa de PowerFactory
+    s:outofstep (pérdida de paso). Se evalúan TODOS los generadores, no solo los graficados, porque el que
+    se desincroniza suele ser una máquina cercana a la falla. (Método del DPL CritClearing.)
 
 Rendimiento: el RMS con falla franca es rápido en horas nocturnas (~3-9 s/corrida) pero en horas de alta
 generación solar puede interrumpir el motor; usar una hora nocturna (P20–P05). El worker se reinicia solo.
@@ -34,9 +35,7 @@ TSTOP_PLOT = 5.0            # ventana de los gráficos de cada falla [s]
 TSTOP_BASE = 60.0          # ventana de la corrida base sin falla [s]
 # Rango/resolución de la búsqueda del CCT. Resolución gruesa (50 ms) para acotar el nº de corridas
 # faltadas: el motor PF se vuelve inestable/crashea tras muchas (~35) RMS con falla en este modelo.
-CCT_MIN_MS, CCT_MAX_MS, CCT_STEP_MS = 80, 600, 50
-ANGLE_LIMIT = 180.0
-OVERSPEED = 0.05
+CCT_MIN_MS, CCT_MAX_MS, CCT_STEP_MS = 80, 400, 50
 N_FAULT_BUSES = 3           # puntos de falla (una sección c/u)
 N_MONITOR_BUSES = 6         # barras cuya tensión se grafica (>5, de 1.er/2.º/3.er grado)
 N_MACHINES = 5
@@ -80,37 +79,17 @@ def _display_names():
     return out
 
 
-def _series_map(app, res, gens, var):
-    out = {}
-    for g in gens:
-        _, y = dynamics.series(app, res, g, var)
-        if y:
-            out[g.loc_name] = y
-    return out
-
-
-def _is_stable(angles, speeds, slack_name):
-    if not angles:
-        return False
-    n = min(len(v) for v in angles.values())
-    if n < 80:                                   # se cortó (divergió) -> inestable
-        return False
-    sl = angles.get(slack_name)
-    sep = max((abs(a[i] - (sl[i] if sl and i < len(sl) else 0.0))
-               for a in angles.values() for i in range(n)), default=0.0)
-    over = max((abs(v - 1.0) for sp in speeds.values() for v in sp), default=0.0)
-    return sep < ANGLE_LIMIT and over < OVERSPEED
-
-
 def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_loads=1.0, run_id=None, progress=None):
     run_id = run_id or time.strftime("%Y%m%d_%H%M%S")
     report = progress or (lambda p, q: None)
     data = {"study": STUDY, "run_id": run_id, "substation": sub_name,
             "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode},
             "method": ("Corrida base sin falla (60 s) + cortocircuito trifásico franco en cada barra. Se busca "
-                       "el tiempo crítico de despeje (CCT, resolución 25 ms): el mayor despeje que mantiene el "
-                       "sincronismo. Criterio: ángulo de rotor relativo al slack (Punta Catalina) < 180° y "
-                       "sobrevelocidad < 5 %. Usar hora nocturna (en horas de alta solar el RMS se interrumpe).")}
+                       "el tiempo crítico de despeje (CCT) por búsqueda binaria: el mayor despeje sin que NINGÚN "
+                       "generador síncrono del sistema pierda el sincronismo (señal nativa s:outofstep de "
+                       "PowerFactory, evaluada en toda la flota). Los gráficos de cada falla se trazan a ese CCT "
+                       "y muestran las máquinas más comprometidas. Usar hora nocturna (en horas de alta solar el "
+                       "RMS se interrumpe).")}
 
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
@@ -130,8 +109,12 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         fault_points = all_buses[:N_FAULT_BUSES]                          # puntos de falla (secciones)
         slack = _slack_machine(app)
         machines = _machines(app, pcc, slack)
+        # TODOS los generadores síncronos en servicio: el CCT se decide cuando NINGUNO pierde el
+        # sincronismo (s:outofstep). El que se desincroniza suele estar cerca de la falla, no en el
+        # subconjunto distante que se grafica (por eso antes el CCT salía sobreestimado).
+        all_gens = [s for s in app.GetCalcRelevantObjects("*.ElmSym") if s.GetAttribute("outserv") == 0]
         data["reference_machine"] = slack.loc_name
-        data["monitored_machines"] = [g.loc_name for g in machines]
+        data["n_generators"] = len(all_gens)
 
         disp = _display_names()
         bus_labels = {b.GetFullName(): f"{disp.get(s, s)} · {round(b.GetAttribute('uknom'))} kV"
@@ -159,40 +142,37 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                 traces.append({"name": (labels or {}).get(o.GetFullName()) or o.loc_name[:18], "y": yx})
             return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
 
-        def _capture(res):
-            return {"voltages": _ser(res, monitor_buses, "m:u", labels=bus_labels),
-                    "angles": _ser(res, machines, "s:firel", scale=1.0 / 180.0, ref=slack),
-                    "speeds": _ser(res, machines, "s:xspeed")}
-
         def _bolted(bus):
             fault_evt.SetAttribute("p_target", bus)
             fault_evt.SetAttribute("R_f", 0.0)
             fault_evt.SetAttribute("X_f", 0.0)
             clear_evt.SetAttribute("p_target", bus)
 
+        def _any_out_of_step(res):
+            """True si ALGÚN generador síncrono del sistema marcó la señal nativa s:outofstep (PF)."""
+            for g in all_gens:
+                _, oos = dynamics.series(app, res, g, "s:outofstep")
+                if oos and max(oos) >= 0.5:
+                    return True
+            return False
+
         def _stable_at(inc, sim, res, clear_ms, tend):
-            """Estable a este despeje. Detección al estilo del DPL CritClearing: (1) si la simulación se
-            detuvo antes de tiempo -> inestable; (2) señal NATIVA s:outofstep de cada máquina (PF marca la
-            pérdida de sincronismo); (3) respaldo por ángulo/sobrevelocidad."""
+            """Estable a este despeje, al estilo del DPL CritClearing: (1) si la simulación se detuvo
+            antes de tiempo -> inestable; (2) la señal NATIVA s:outofstep de CUALQUIER generador del
+            sistema indica pérdida de sincronismo. No basta con mirar el subconjunto graficado: el que
+            se desincroniza suele ser una máquina cercana a la falla."""
             clear_evt.SetAttribute("time", FAULT_T + clear_ms / 1000.0)
             dynamics.rms_run(app, inc, sim, tstop=tend, dt=DT)
-            t, _ = dynamics.series(app, res, machines[0], "s:firel")
+            t, _ = dynamics.series(app, res, all_gens[0], "s:outofstep")
             if not (t and t[-1] >= tend - 0.6):
-                return False                          # la corrida se detuvo antes (out-of-step / divergió)
-            for g in machines:
-                _, oos = dynamics.series(app, res, g, "s:outofstep")
-                if oos and max(oos) >= 0.5:           # PF marcó pérdida de paso en esta máquina
-                    return False
-            return _is_stable(_series_map(app, res, machines, "s:firel"),
-                              _series_map(app, res, machines, "s:xspeed"), slack.loc_name)
+                return False                          # la corrida se detuvo antes (divergió)
+            return not _any_out_of_step(res)
 
         def _search_cct(bus):
-            """Búsqueda binaria del CCT [ms] = mayor despeje que mantiene el sincronismo (falla franca)."""
+            """Búsqueda binaria del CCT [ms] = mayor despeje sin que NINGÚN generador pierda el paso."""
             _bolted(bus)
             fault_evt.SetAttribute("time", FAULT_T)
-            inc, sim, res = dynamics.rms_prepare(
-                app, [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines]
-                + [(g, "s:outofstep") for g in machines])
+            inc, sim, res = dynamics.rms_prepare(app, [(g, "s:outofstep") for g in all_gens])
             lo, hi = CCT_MIN_MS, CCT_MAX_MS
             if not _stable_at(inc, sim, res, lo, TSTOP_CCT):
                 return None, lo                       # inestable aun con el despeje mínimo
@@ -208,16 +188,38 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                     hi = mid
             return lo, hi
 
+        def _committed(res, n=N_MACHINES):
+            """Las n máquinas MÁS COMPROMETIDAS = mayor excursión del ángulo de rotor relativo al slack
+            (las que estuvieron más cerca de perder el sincronismo) + el propio slack de referencia."""
+            _, sl = dynamics.series(app, res, slack, "s:firel")
+            scored = []
+            for g in all_gens:
+                if g is slack:
+                    continue
+                _, a = dynamics.series(app, res, g, "s:firel")
+                if not a:
+                    continue
+                m = min(len(a), len(sl)) if sl else len(a)
+                sep = max((abs(a[i] - (sl[i] if sl else 0.0)) for i in range(m)), default=0.0)
+                scored.append((sep, g))
+            scored.sort(key=lambda x: -x[0])
+            return [slack] + [g for _, g in scored[:n]]
+
         def _capture_run(bus, clear_ms):
-            """Corrida a 5 s al despeje dado (monitorea la tensión de varias barras) -> gráficos."""
+            """Corrida a 5 s al despeje dado -> gráficos. Monitorea la tensión de varias barras y el
+            ángulo/velocidad de TODOS los generadores, y grafica las máquinas más comprometidas."""
             _bolted(bus)
             fault_evt.SetAttribute("time", FAULT_T)
             clear_evt.SetAttribute("time", FAULT_T + clear_ms / 1000.0)
             inc, sim, res = dynamics.rms_prepare(
                 app, [(t, "m:u") for t in monitor_buses]
-                + [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines])
+                + [(g, "s:firel") for g in all_gens] + [(g, "s:xspeed") for g in all_gens])
             dynamics.rms_run(app, inc, sim, tstop=TSTOP_PLOT, dt=DT)
-            return _capture(res)
+            mach = _committed(res)
+            return {"voltages": _ser(res, monitor_buses, "m:u", labels=bus_labels),
+                    "angles": _ser(res, mach, "s:firel", scale=1.0 / 180.0, ref=slack),
+                    "speeds": _ser(res, mach, "s:xspeed"),
+                    "machines": [g.loc_name for g in mach]}
 
         # ---- CCT SIN planta ----
         report("buscando CCT sin planta", 8)
