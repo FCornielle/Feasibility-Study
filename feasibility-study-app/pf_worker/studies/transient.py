@@ -29,12 +29,12 @@ from studies import steady_state as _ss  # barras por grado (reutilizado)  # noq
 STUDY = "transient"
 DT = 0.01
 FAULT_T = 0.5
-TSTOP_CCT = 2.5              # ventana para juzgar estabilidad (primer swing) [s]
+TSTOP_CCT = 2.0              # ventana de las corridas de búsqueda (corta: las inestables no se arrastran) [s]
 TSTOP_PLOT = 5.0            # ventana de los gráficos de cada falla [s]
 TSTOP_BASE = 60.0          # ventana de la corrida base sin falla [s]
 # Rango/resolución de la búsqueda del CCT. Resolución gruesa (50 ms) para acotar el nº de corridas
 # faltadas: el motor PF se vuelve inestable/crashea tras muchas (~35) RMS con falla en este modelo.
-CCT_MIN_MS, CCT_MAX_MS, CCT_STEP_MS = 80, 400, 50
+CCT_MIN_MS, CCT_MAX_MS, CCT_STEP_MS = 80, 600, 50
 ANGLE_LIMIT = 180.0
 OVERSPEED = 0.05
 N_FAULT_BUSES = 3           # puntos de falla (una sección c/u)
@@ -171,53 +171,59 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             clear_evt.SetAttribute("p_target", bus)
 
         def _stable_at(inc, sim, res, clear_ms, tend):
+            """Estable a este despeje. Detección al estilo del DPL CritClearing: (1) si la simulación se
+            detuvo antes de tiempo -> inestable; (2) señal NATIVA s:outofstep de cada máquina (PF marca la
+            pérdida de sincronismo); (3) respaldo por ángulo/sobrevelocidad."""
             clear_evt.SetAttribute("time", FAULT_T + clear_ms / 1000.0)
             dynamics.rms_run(app, inc, sim, tstop=tend, dt=DT)
             t, _ = dynamics.series(app, res, machines[0], "s:firel")
-            conv = bool(t) and t[-1] >= tend - 0.6
-            ok = conv and _is_stable(_series_map(app, res, machines, "s:firel"),
-                                     _series_map(app, res, machines, "s:xspeed"), slack.loc_name)
-            return ok
+            if not (t and t[-1] >= tend - 0.6):
+                return False                          # la corrida se detuvo antes (out-of-step / divergió)
+            for g in machines:
+                _, oos = dynamics.series(app, res, g, "s:outofstep")
+                if oos and max(oos) >= 0.5:           # PF marcó pérdida de paso en esta máquina
+                    return False
+            return _is_stable(_series_map(app, res, machines, "s:firel"),
+                              _series_map(app, res, machines, "s:xspeed"), slack.loc_name)
 
-        def _search_cct(bus, tend, capture):
-            """Búsqueda binaria del CCT [ms] (mayor despeje que mantiene el sincronismo) con falla franca.
-            Si capture, guarda los gráficos de la corrida DEL CCT (sin corridas extra). (cct, upper, series)."""
+        def _search_cct(bus):
+            """Búsqueda binaria del CCT [ms] = mayor despeje que mantiene el sincronismo (falla franca)."""
             _bolted(bus)
             fault_evt.SetAttribute("time", FAULT_T)
-            mon = [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines]
-            if capture:
-                mon = [(t, "m:u") for t in monitor_buses] + mon
-            inc, sim, res = dynamics.rms_prepare(app, mon)
-            best = [None]
-
-            def ok_at(clear_ms):
-                if not _stable_at(inc, sim, res, clear_ms, tend):
-                    return False
-                if capture:
-                    best[0] = _capture(res)       # mayor despeje estable hasta ahora
-                return True
-
+            inc, sim, res = dynamics.rms_prepare(
+                app, [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines]
+                + [(g, "s:outofstep") for g in machines])
             lo, hi = CCT_MIN_MS, CCT_MAX_MS
-            if not ok_at(lo):
-                return None, lo, None              # inestable aun con el despeje mínimo
-            if ok_at(hi):
-                return hi, None, best[0]           # estable hasta el máximo explorado (CCT ≥ máx)
+            if not _stable_at(inc, sim, res, lo, TSTOP_CCT):
+                return None, lo                       # inestable aun con el despeje mínimo
+            if _stable_at(inc, sim, res, hi, TSTOP_CCT):
+                return hi, None                       # estable hasta el máximo explorado (CCT ≥ máx)
             while hi - lo > CCT_STEP_MS:
                 mid = int(round((lo + hi) / 2.0 / CCT_STEP_MS) * CCT_STEP_MS)
                 if mid <= lo or mid >= hi:
                     break
-                if ok_at(mid):
+                if _stable_at(inc, sim, res, mid, TSTOP_CCT):
                     lo = mid
                 else:
                     hi = mid
-            return lo, hi, best[0]
+            return lo, hi
+
+        def _capture_run(bus, clear_ms):
+            """Corrida a 5 s al despeje dado (monitorea la tensión de varias barras) -> gráficos."""
+            _bolted(bus)
+            fault_evt.SetAttribute("time", FAULT_T)
+            clear_evt.SetAttribute("time", FAULT_T + clear_ms / 1000.0)
+            inc, sim, res = dynamics.rms_prepare(
+                app, [(t, "m:u") for t in monitor_buses]
+                + [(g, "s:firel") for g in machines] + [(g, "s:xspeed") for g in machines])
+            dynamics.rms_run(app, inc, sim, tstop=TSTOP_PLOT, dt=DT)
+            return _capture(res)
 
         # ---- CCT SIN planta ----
         report("buscando CCT sin planta", 8)
         cct_sin = {}
         for k, (bus, deg, sname) in enumerate(fault_points):
-            cct, upper, _ = _search_cct(bus, TSTOP_CCT, False)
-            cct_sin[bus.GetFullName()] = (cct, upper)
+            cct_sin[bus.GetFullName()] = _search_cct(bus)
             report(f"CCT sin planta ({k + 1}/{len(fault_points)})", 8 + int(22 * (k + 1) / len(fault_points)))
 
         # ---- Con planta ----
@@ -236,17 +242,15 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                             "frequency": _ser(res, monitor_buses, "m:fehz", labels=bus_labels),
                             "speeds": _ser(res, machines, "s:xspeed")}
 
-        # ---- CCT CON planta + gráfico a 5 s por cada falla (capturado de la corrida del CCT) ----
+        # ---- CCT CON planta + gráfico a 5 s por cada falla (despejado al CCT) ----
         cct_con, cases = {}, []
         for k, (bus, deg, sname) in enumerate(fault_points):
-            cct, upper, series = _search_cct(bus, TSTOP_PLOT, True)
+            cct, upper = _search_cct(bus)
             cct_con[bus.GetFullName()] = (cct, upper)
             clear_ms = cct if cct is not None else CCT_MIN_MS
             case = {"bus": bus.loc_name, "sub": disp.get(sname, sname), "degree": deg,
                     "kv": round(bus.GetAttribute("uknom"), 1), "clearing_ms": clear_ms,
-                    "stable": cct is not None}
-            if isinstance(series, dict):
-                case.update(series)
+                    "stable": cct is not None, **_capture_run(bus, clear_ms)}
             cases.append(case)
             report(f"CCT/gráficos con planta ({k + 1}/{len(fault_points)})",
                    40 + int(52 * (k + 1) / len(fault_points)))
