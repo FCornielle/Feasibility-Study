@@ -219,12 +219,23 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                     "speeds": _ser(res, mach, "s:xspeed"),
                     "machines": [g.loc_name for g in mach]}
 
-        # ---- CCT SIN planta ----
-        report("buscando CCT sin planta", 8)
-        cct_sin = {}
+        def _cct_and_graphs(bus):
+            """CCT (último despeje sin que NINGÚN generador pierda el paso) + gráficos a 5 s a ESE
+            despeje (no a un valor fijo): así el gráfico nunca muestra la oscilación de una máquina
+            fuera de paso. Devuelve (cct, upper, side) con side={clearing_ms, machines, voltages,...}."""
+            cct, upper = _search_cct(bus)
+            clear_ms = cct if cct is not None else CCT_MIN_MS
+            side = {"clearing_ms": clear_ms, "stable": cct is not None, **_capture_run(bus, clear_ms)}
+            return cct, upper, side
+
+        # ---- CCT + gráficos SIN planta ----
+        report("CCT y gráficos sin planta", 8)
+        cct_sin, graphs_sin = {}, {}
         for k, (bus, deg, sname) in enumerate(fault_points):
-            cct_sin[bus.GetFullName()] = _search_cct(bus)
-            report(f"CCT sin planta ({k + 1}/{len(fault_points)})", 8 + int(22 * (k + 1) / len(fault_points)))
+            cct, upper, side = _cct_and_graphs(bus)
+            cct_sin[bus.GetFullName()] = (cct, upper)
+            graphs_sin[bus.GetFullName()] = side
+            report(f"CCT/gráficos sin planta ({k + 1}/{len(fault_points)})", 8 + int(20 * (k + 1) / len(fault_points)))
 
         # ---- Con planta ----
         report("modelando PV+BESS", 32)
@@ -242,16 +253,15 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                             "frequency": _ser(res, monitor_buses, "m:fehz", labels=bus_labels),
                             "speeds": _ser(res, machines, "s:xspeed")}
 
-        # ---- CCT CON planta + gráfico a 5 s por cada falla (despejado al CCT) ----
+        # ---- CCT + gráficos CON planta; una sección por falla con AMBOS (sin y con planta) ----
         cct_con, cases = {}, []
         for k, (bus, deg, sname) in enumerate(fault_points):
-            cct, upper = _search_cct(bus)
-            cct_con[bus.GetFullName()] = (cct, upper)
-            clear_ms = cct if cct is not None else CCT_MIN_MS
-            case = {"bus": bus.loc_name, "sub": disp.get(sname, sname), "degree": deg,
-                    "kv": round(bus.GetAttribute("uknom"), 1), "clearing_ms": clear_ms,
-                    "stable": cct is not None, **_capture_run(bus, clear_ms)}
-            cases.append(case)
+            fn = bus.GetFullName()
+            cct, upper, side_con = _cct_and_graphs(bus)
+            cct_con[fn] = (cct, upper)
+            cases.append({"bus": bus.loc_name, "sub": disp.get(sname, sname), "degree": deg,
+                          "kv": round(bus.GetAttribute("uknom"), 1),
+                          "sin": graphs_sin.get(fn), "con": side_con})
             report(f"CCT/gráficos con planta ({k + 1}/{len(fault_points)})",
                    40 + int(52 * (k + 1) / len(fault_points)))
         data["cases"] = cases

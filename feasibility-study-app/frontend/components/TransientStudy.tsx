@@ -70,7 +70,7 @@ export default function TransientStudy() {
     } catch (e) { setErr(String(e)); }
   }
 
-  const noData = result && !result.cases?.some((c: any) => c.voltages?.traces?.length)
+  const noData = result && !result.cases?.some((c: any) => c.con?.voltages?.traces?.length || c.sin?.voltages?.traces?.length)
     && !result.cct_table?.some((r: any) => r.cct_con_ms != null);
   return (
     <>
@@ -174,33 +174,45 @@ export default function TransientStudy() {
             </div>
           )}
 
-          {/* Una sección de gráficos por cada punto de falla */}
-          {(result.cases ?? []).map((c: any, i: number) => (
-            <div className="card" key={i}>
-              <h3>
-                {c.degree === 0 ? "★ " : ""}Falla en {c.sub || c.bus} · {c.kv} kV
-                {c.degree === 0 ? " (PCC)" : ` (${c.degree}º grado)`} — despejada en {c.clearing_ms} ms (5 s)
-              </h3>
-              <div className="grid2">
-                <SpeedChart series={c.voltages} title="Tensión de las barras" yLabel="u [pu]" />
-                <SpeedChart series={c.angles} title="Ángulo de rotor (vs slack Punta Catalina)" yLabel="δ [pu] (1 = 180°)" />
+          {/* Una sección por falla: columna SIN planta vs columna CON planta, cada una despejada a su CCT */}
+          {(result.cases ?? []).map((c: any, i: number) => {
+            const Side = ({ s, label, color }: { s: any; label: string; color: string }) => (
+              <div>
+                <h4 style={{ margin: "0 0 6px", color }}>
+                  {label} — despejada en {s?.clearing_ms ?? "—"} ms{s?.stable === false ? " (pierde sincronismo)" : ""}
+                </h4>
+                <SpeedChart series={s?.voltages} title="Tensión de las barras" yLabel="u [pu]" />
+                <div style={{ marginTop: 8 }}>
+                  <SpeedChart series={s?.angles} title="Ángulo de rotor (vs slack Punta Catalina)" yLabel="δ [pu] (1 = 180°)" />
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <SpeedChart series={s?.speeds} title="Velocidad de los generadores" yLabel="ω [pu]" />
+                </div>
+                {s?.machines?.length > 0 && (
+                  <p className="phase" style={{ marginTop: 6 }}>Máquinas más comprometidas: {s.machines.join(", ")}.</p>
+                )}
               </div>
-              <div style={{ marginTop: 10 }}>
-                <SpeedChart series={c.speeds} title="Velocidad de los generadores" yLabel="ω [pu]" />
+            );
+            return (
+              <div className="card" key={i}>
+                <h3>
+                  {c.degree === 0 ? "★ " : ""}Falla en {c.sub || c.bus} · {c.kv} kV
+                  {c.degree === 0 ? " (PCC)" : ` (${c.degree}º grado)`} — gráficos a 5 s, despejada en su CCT
+                </h3>
+                <div className="grid2">
+                  <Side s={c.sin} label="● SIN planta" color="var(--warn)" />
+                  <Side s={c.con} label="✚ CON planta" color="var(--accent)" />
+                </div>
               </div>
-              {c.machines?.length > 0 && (
-                <p className="phase" style={{ marginTop: 8 }}>
-                  Máquinas más comprometidas (mayor excursión angular ante esta falla):
-                  {" "}{c.machines.join(", ")}.
-                </p>
-              )}
-            </div>
-          ))}
+            );
+          })}
           <p className="phase">
-            Cada sección: falla trifásica franca en la barra, despejada en su CCT. El CCT es el mayor despeje
-            sin que <b>ningún</b> generador síncrono del sistema pierda el sincronismo (señal nativa
-            <i> s:outofstep</i> de PowerFactory, evaluada en los {result.n_generators ?? "todos los"} generadores
-            en servicio). A ese despeje las tensiones se recuperan y los ángulos/velocidades se estabilizan.
+            Cada falla se grafica SIN y CON la planta, y <b>cada columna se despeja en su propio CCT</b> (no a un
+            tiempo fijo): el mayor despeje sin que <b>ningún</b> generador síncrono del sistema pierda el paso
+            (señal nativa <i>s:outofstep</i> de PowerFactory, evaluada en los {result.n_generators ?? "todos los"}{" "}
+            generadores en servicio). Por eso las tensiones se recuperan y no aparecen oscilaciones de una máquina
+            fuera de paso. Que el CCT con planta no sea menor que sin planta demuestra que la nueva planta no le
+            quita margen al sistema para despejar fallas sin perder el sincronismo.
           </p>
         </>
       )}
