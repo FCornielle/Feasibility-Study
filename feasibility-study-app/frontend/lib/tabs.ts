@@ -27,4 +27,4 @@ export const HOURS = Array.from({ length: 24 }, (_, i) => {
 });
 
 // Pestañas con resultado de serie x/traces (componente DynamicStudy genérico).
-export const DYNAMIC_TABS = ["small-signal", "transient", "voltage", "frequency", "quasi"];
+export const DYNAMIC_TABS = ["small-signal", "transient", "frequency", "quasi"];

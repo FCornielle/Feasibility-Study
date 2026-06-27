@@ -5,6 +5,7 @@ import SteadyState from "@/components/SteadyState";
 import DynamicStudy from "@/components/DynamicStudy";
 import SmallSignalStudy from "@/components/SmallSignalStudy";
 import TransientStudy from "@/components/TransientStudy";
+import VoltageStudy from "@/components/VoltageStudy";
 import ReportRunner from "@/components/ReportRunner";
 import { DYNAMIC_TABS, TABS } from "@/lib/tabs";
 
@@ -35,6 +36,8 @@ export default function Page() {
             <SmallSignalStudy />
           ) : tab === "transient" ? (
             <TransientStudy />
+          ) : tab === "voltage" ? (
+            <VoltageStudy />
           ) : tab === "report" ? (
             <ReportRunner />
           ) : DYNAMIC_TABS.includes(tab) ? (
