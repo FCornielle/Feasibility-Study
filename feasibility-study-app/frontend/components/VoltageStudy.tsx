@@ -114,9 +114,8 @@ export default function VoltageStudy() {
               {running ? "Ejecutando…" : "Ejecutar Voltage Stability"}
             </button>
             <p className="phase" style={{ marginTop: 8, color: "var(--warn)" }}>
-              ⚠ Estudio RMS con falla (réplica Sajoma §9.3). Corre rápido (~30 s) en <b>horas nocturnas
-              (P20–P05)</b>. En horas de alta generación solar el RMS faltado puede interrumpir el motor; usa
-              una hora nocturna.
+              ⚠ Estudio RMS con falla. Corre rápido (~30 s) en <b>horas nocturnas (P20–P05)</b>. En horas de
+              alta generación solar el RMS faltado puede interrumpir el motor; usa una hora nocturna.
             </p>
             {job && <RunProgress job={job} />}
             {err && <div className="err">{err}</div>}
@@ -139,12 +138,31 @@ export default function VoltageStudy() {
             <p className="phase">{result.method}</p>
           </div>
 
-          <Section
-            title="9.3.1 — Falla monofásica con re-cierre exitoso"
-            subtitle={`Cortocircuito monofásico (fase A) con ${result.fault?.r_fault_ohm ?? 2} Ω de resistencia en el PCC, despejado y re-cerrado a los ${result.fault?.clearing_ms ?? 250} ms. La tensión debe recuperarse en menos de 2 s; con la planta se observa además la entrega de reactivos.`}
-            data={result.fault}
-            showReactive
-          />
+          <div className="card">
+            <h3>9.3.1 — Falla monofásica con re-cierre exitoso</h3>
+            <p className="phase" style={{ marginTop: -4 }}>La falla simulada tiene en cuenta:</p>
+            <ul className="phase" style={{ margin: "2px 0 10px 18px" }}>
+              {(result.fault?.detail ?? []).map((d: string, i: number) => <li key={i}>{d}</li>)}
+            </ul>
+            <p className="phase" style={{ marginBottom: 10 }}>
+              La tensión debe recuperarse en menos de 2 s; con la planta se observa además la entrega de reactivos.
+            </p>
+            <div className="grid2">
+              <div>
+                <h4 style={{ margin: "0 0 6px", color: "var(--warn)" }}>● SIN planta</h4>
+                <SpeedChart series={result.fault?.sin?.voltages} title="Tensión de las barras" yLabel="u [pu]" />
+              </div>
+              <div>
+                <h4 style={{ margin: "0 0 6px", color: "var(--accent)" }}>✚ CON planta</h4>
+                <SpeedChart series={result.fault?.con?.voltages} title="Tensión de las barras" yLabel="u [pu]" />
+                {result.fault?.con?.reactive?.traces?.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <SpeedChart series={result.fault.con.reactive} title="Potencia reactiva de la planta" yLabel="Q [Mvar]" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
           <Section
             title="9.3.2 — Respuesta a una variación de tensión en el PCC"
@@ -154,9 +172,11 @@ export default function VoltageStudy() {
           />
 
           <p className="phase">
-            Ambas pruebas se ejecutan SIN y CON la planta PV+BESS. Que la recuperación de tensión con la planta no
-            sea peor que sin ella, y que la planta aporte reactivos durante la falla y la variación, demuestra que
-            la nueva generación no degrada la estabilidad de tensión del sistema (criterio del estudio Sajoma §9.3).
+            Ambas pruebas se ejecutan SIN y CON la planta PV+BESS. El despacho de la planta sigue la hora del
+            escenario: el PV solo aporta reactivo cuando hay sol y el BESS solo cuando descarga (mientras carga no
+            aporta). Que la recuperación de tensión con la planta no sea peor que sin ella, y que la planta aporte
+            reactivos cuando está despachada, demuestra que la nueva generación no degrada la estabilidad de tensión.
+            {result.dispatch?.reactive_sources?.length ? ` Aportan reactivo en este escenario: ${result.dispatch.reactive_sources.join(", ")}.` : " En este escenario la planta no está despachada (no aporta reactivo)."}
           </p>
         </>
       )}

@@ -9,7 +9,7 @@ Lista viva de tareas que dejamos abiertas al avanzar. Cada una indica de qué et
 - [ ] **Confirmar el número exacto** del reglamento de conexión/operación en transmisión del **paquete SIE 2026**
       (SIE-007-2026-REG es Generación Distribuida, no transmisión). Candidatos por tamaño: SIE-061-2025-REG,
       SIE-013-2025-REG, SIE-155-2025-REG.
-- [ ] **Revisión de Fernando** de `sajoma_layout.md` y `criteria.md` (criterio de aceptación de Etapa 0).
+- [ ] **Revisión de Fernando** de `report_layout.md` y `criteria.md` (criterio de aceptación de Etapa 0).
 - [ ] Definir alcance y datos del **Estudio de Recurso** (pestaña 1) — se aborda en Etapa 8.
 
 ## De Etapa 1 (modelo / mapa)
@@ -42,7 +42,7 @@ despeje → recuperación 0.998 pu, ángulo 83.7°). Refinamientos pendientes:
       reporta FALLA. Tratar `None` como indeterminado; monitorear un generador cercano al PCC; o configurar
       `ComMod` (modal) que hoy no converge (ierr=1).
 - [ ] **Transient**: validar ubicación/tiempo de falla por esquema de protecciones; añadir curva LVRT/HVRT;
-      fallas en varias SSEE (Sajoma evalúa Naranjo/Sajoma/Navarrete/etc.). Confirmado `EvtShc i_shc=0` (3φ) y `=4` (despeje).
+      fallas en varias SSEE (1.er/2.º grado más cercanas al PCC). Confirmado `EvtShc i_shc=0` (3φ) y `=4` (despeje).
 - [ ] **Voltage (P-V)**: el sistema no colapsa a 1.6× carga; extender el rango o usar flujo de continuación
       (CPF) para hallar el punto de colapso real; añadir curvas Q-V.
 - [ ] **Comparación con/sin planta** en los 4 dinámicos (hoy solo con planta).
@@ -75,9 +75,9 @@ los selectores. Para producto final:
 ## De Etapa 8 (reporte / recurso)
 - [ ] **Estudio de Recurso** (pestaña 1): definir fuente de datos del recurso solar (irradiancia GHI/POA, estación
       meteorológica, TMY) y el cálculo de energía/factor de planta. Es un estudio DISTINTO al de interconexión
-      (el de Sajoma es de interconexión). Hoy es un stub que lo explica.
+      (el reporte de referencia es de interconexión). Hoy es un stub que lo explica.
 - [ ] **Exportar PDF real** del reporte (hoy = HTML imprimible desde el navegador, estilo self-contained de
       modom-pypsa). Evaluar reportlab/weasyprint para PDF server-side.
 - [ ] **Reusar resultados ya corridos**: el reporte re-ejecuta los 6 estudios en serie (~5 min); permitir
       ensamblar resultados existentes en vez de recalcular.
-- [ ] Añadir anexos (tablas crudas por estudio) y portada formal estilo Sajoma.
+- [ ] Añadir anexos (tablas crudas por estudio) y portada formal del reporte de interconexión.

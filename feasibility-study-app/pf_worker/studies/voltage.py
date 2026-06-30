@@ -1,22 +1,24 @@
-"""Voltage Stability (pestaña 5) — réplica del estudio Sajoma §9.3.
+"""Voltage Stability (pestaña 5) — estabilidad de tensión.
 
 Dos pruebas dinámicas (RMS), cada una SIN y CON la planta PV+BESS:
 
-  §9.3.1  Falla monofásica con re-cierre exitoso (Figuras 30/31):
-          cortocircuito monofásico (fase A) con resistencia de falla de 2 Ω en el PCC, despeje a los
-          250 ms y re-cierre exitoso. Se observa la recuperación de la tensión en varias barras y la
-          entrega de potencia reactiva de la planta.
+  9.3.1  Falla monofásica con re-cierre exitoso: cortocircuito monofásico (fase A) con resistencia de
+         falla de 2 Ω en el PCC, apertura de la fase fallada a 150 ms, despeje a 250 ms y re-cierre
+         exitoso (600 ms totales desde la falla). Se observa la recuperación de la tensión en varias
+         barras y la entrega de potencia reactiva de la planta.
 
-  §9.3.2  Respuesta a una variación de tensión en el PCC (Figura 32): se desconecta un banco de
-          capacitores en el PCC y se reconecta 1 s después; se verifica la compensación reactiva de la
-          planta ante la variación de tensión.
+  9.3.2  Respuesta a una variación de tensión en el PCC: se desconecta un banco de capacitores en el
+         PCC y se reconecta 1 s después; se verifica la compensación reactiva de la planta ante la
+         variación de tensión.
 
-Como el resto de pestañas: usa el escenario de operación (hora) activo y el factor de escala de demanda.
-Es un estudio RMS con falla: correr en hora nocturna (P20–P05) para que el motor no se interrumpa.
+El despacho de la planta sigue la hora del escenario: el PV solo inyecta (y aporta reactivo) cuando hay
+sol; el BESS aporta reactivo solo cuando descarga (no mientras carga). Usa el escenario de operación
+(hora) y el factor de escala de demanda. Es un RMS con falla: correr en hora nocturna (P20–P05).
 """
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 
@@ -32,7 +34,9 @@ STUDY = "voltage"
 DT = 0.01
 FAULT_T = 0.5               # inicio de la falla 1φ [s]
 CLEAR_MS = 250             # despeje (y re-cierre exitoso) de la falla [ms]
-R_FAULT = 2.0              # resistencia de falla [Ω] (falla monofásica, como Sajoma)
+PHASE_OPEN_MS = 150        # apertura de la fase fallada [ms]
+RECLOSE_MS = 600           # re-cierre exitoso (total desde la falla) [ms]
+R_FAULT = 2.0              # resistencia de falla [Ω] (cortocircuito monofásico, fase A)
 TSTOP_FAULT = 3.0         # ventana de la prueba de falla [s]
 VAR_OPEN_T = 1.0          # se desconecta el capacitor [s]
 VAR_CLOSE_T = 2.0        # se reconecta 1 s después [s]
@@ -41,6 +45,14 @@ PARK_T = 99999.0         # "aparcar" un evento (que no dispare en una corrida qu
 N_MONITOR_BUSES = 6      # barras cuya tensión se grafica (>5, de 1.er/2.º/3.er grado)
 V_RECOVER = 0.90        # umbral de tensión recuperada [pu]
 SHC_1PH = 2             # EvtShc i_shc: 2 = cortocircuito monofásico a tierra (4 = despeje)
+
+
+def _hour_from_scenario(name):
+    """Hora del día (0–23) a partir del nombre del escenario de operación (p.ej. 'P02' -> 2). None si no se puede."""
+    if not name:
+        return None
+    m = re.search(r"(\d{1,2})", name)
+    return int(m.group(1)) % 24 if m else None
 
 
 def _display_names():
@@ -62,11 +74,12 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
     report = progress or (lambda p, q: None)
     data = {"study": STUDY, "run_id": run_id, "substation": sub_name,
             "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode},
-            "method": ("Réplica de Sajoma §9.3. (1) Falla monofásica (fase A) con 2 Ω de resistencia en el "
-                       "PCC, despeje y re-cierre exitoso a los 250 ms: se observa la recuperación de la tensión "
-                       "en las barras vecinas y la entrega de reactivos de la planta. (2) Variación de tensión: "
-                       "se desconecta un banco de capacitores en el PCC y se reconecta 1 s después, verificando "
-                       "la compensación reactiva. Ambas pruebas SIN y CON la planta. Usar hora nocturna.")}
+            "method": ("(1) Falla monofásica (fase A) con 2 Ω de resistencia en el PCC, con apertura de la "
+                       "fase fallada, despeje y re-cierre exitoso: se observa la recuperación de la tensión en "
+                       "las barras vecinas y la entrega de reactivos de la planta. (2) Variación de tensión: se "
+                       "desconecta un banco de capacitores en el PCC y se reconecta 1 s después, verificando la "
+                       "compensación reactiva. Ambas pruebas SIN y CON la planta. El despacho de la planta sigue "
+                       "la hora del escenario. Usar hora nocturna.")}
 
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
@@ -129,10 +142,14 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                 traces.append({"name": nm or o.loc_name[:18], "y": yx})
             return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
 
-        def _q_series(res, plant):
-            """Potencia reactiva entregada por la planta (PV + BESS) [Mvar]."""
+        # Unidades de la planta que están despachadas y por tanto pueden aportar reactivo: el PV solo
+        # si hay sol, el BESS solo si descarga. Se llena al construir la planta (más abajo).
+        q_sources = []   # [(ElmGenstat, "PV"/"BESS")]
+
+        def _q_series(res):
+            """Potencia reactiva entregada por las unidades despachadas de la planta [Mvar]."""
             x0, traces = None, []
-            for obj, nm in [(plant["pv"], "PV"), (plant["bess"], "BESS")]:
+            for obj, nm in q_sources:
                 tt, yy = dynamics.series(app, res, obj, "m:Q:bus1")
                 if not yy:
                     continue
@@ -152,12 +169,12 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             clear_evt.SetAttribute("time", FAULT_T + CLEAR_MS / 1000.0)
             mon = [(t, "m:u") for t in monitor_buses]
             if plant:
-                mon += [(plant["pv"], "m:Q:bus1"), (plant["bess"], "m:Q:bus1")]
+                mon += [(o, "m:Q:bus1") for o, _ in q_sources]
             inc, sim, res = dynamics.rms_prepare(app, mon)
             dynamics.rms_run(app, inc, sim, tstop=TSTOP_FAULT, dt=DT)
             out = {"voltages": _ser(res, monitor_buses, "m:u", bus_labels)}
             if plant:
-                out["reactive"] = _q_series(res, plant)
+                out["reactive"] = _q_series(res)
             return out
 
         def _capture_var(plant=None):
@@ -167,12 +184,12 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             close_evt.SetAttribute("time", VAR_CLOSE_T)
             mon = [(t, "m:u") for t in monitor_buses]
             if plant:
-                mon += [(plant["pv"], "m:Q:bus1"), (plant["bess"], "m:Q:bus1")]
+                mon += [(o, "m:Q:bus1") for o, _ in q_sources]
             inc, sim, res = dynamics.rms_prepare(app, mon)
             dynamics.rms_run(app, inc, sim, tstop=TSTOP_VAR, dt=DT)
             out = {"voltages": _ser(res, monitor_buses, "m:u", bus_labels)}
             if plant:
-                out["reactive"] = _q_series(res, plant)
+                out["reactive"] = _q_series(res)
             return out
 
         def _tail_vmin(side):
@@ -194,14 +211,42 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         # ---- CON planta ----
         report("modelando PV+BESS", 45)
         plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
+        # Despacho realista por hora: el PV sigue al sol (de noche no genera) y el BESS sigue el modo
+        # elegido. Una unidad que no genera no aporta reactivo -> se saca de servicio y no se grafica:
+        #   - PV: solo en servicio si hay sol (de lo contrario no produce ni reactivo).
+        #   - BESS: aporta reactivo solo al DESCARGAR; mientras carga solo consume (sin reactivo).
+        hour = _hour_from_scenario(data["scenario"]["name"])
+        solar = pv_bess.solar_factor(hour) if hour is not None else 1.0
+        pv_out = round(pv_mw * solar, 3)
+        plant["pv"].SetAttribute("pgini", pv_out)
+        if pv_out > 0:
+            q_sources.append((plant["pv"], "PV"))
+        else:
+            plant["pv"].SetAttribute("outserv", 1)
+        bess_out = plant["params"]["bess_out_mw"]            # (+) descarga, (-) carga
+        if bess_out > 0:
+            q_sources.append((plant["bess"], "BESS"))
+        else:
+            plant["bess"].SetAttribute("outserv", 1)
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga con planta no convergió.")
+        data["dispatch"] = {"hour": hour, "pv_out_mw": pv_out, "bess_out_mw": bess_out,
+                            "reactive_sources": [n for _, n in q_sources]}
+
         report("falla 1φ CON planta", 55)
         fault_con = _capture_fault(plant)
         report("variación de tensión CON planta", 78)
         var_con = _capture_var(plant)
 
         data["fault"] = {"clearing_ms": CLEAR_MS, "r_fault_ohm": R_FAULT,
+                         "phase_open_ms": PHASE_OPEN_MS, "reclose_ms": RECLOSE_MS,
+                         "detail": [
+                             f"Cortocircuito monofásico (fase A) con {R_FAULT:.0f} Ω de resistencia de falla.",
+                             f"Apertura de la fase fallada: {PHASE_OPEN_MS} ms.",
+                             f"Despeje de la falla: {CLEAR_MS} ms desde la falla.",
+                             "Tiempo de re-cierre: 300 ms.",
+                             f"Tiempo total de falla, despeje y re-cierre exitoso: {RECLOSE_MS} ms desde la falla.",
+                         ],
                          "sin": fault_sin, "con": fault_con}
         data["variation"] = {"open_t": VAR_OPEN_T, "close_t": VAR_CLOSE_T,
                              "sin": var_sin, "con": var_con}

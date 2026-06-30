@@ -1,8 +1,8 @@
 """Reporte de Interconexión (Etapa 8): corre TODOS los estudios de interconexión y los ensambla.
 
 Realiza la visión central: dada una subestación + planta PV+BESS, ejecuta en serie los 6 estudios
-(steady, small-signal, transient, voltage, frequency, quasi) y produce un informe consolidado al
-estilo del *Estudio de Acceso al SENI* (Sajoma), con la matriz de cumplimiento del Código de Conexión.
+(steady, small-signal, transient, voltage, frequency, quasi) y produce un informe consolidado de
+acceso/interconexión al SENI, con la matriz de cumplimiento del Código de Conexión.
 
 Cada sub-estudio corre en su propio sandbox (no destructivo); si uno falla, el reporte continúa y lo marca.
 """
@@ -18,7 +18,7 @@ from studies import frequency, quasi_dynamic, small_signal, steady_state, transi
 
 STUDY = "report"
 
-# (clave, etiqueta, función). Orden del reporte estilo Sajoma.
+# (clave, etiqueta, función). Orden del reporte de interconexión.
 SUBSTUDIES = [
     ("steady_state", "Comportamiento estático (flujo, N-1, cortocircuito)", steady_state.run),
     ("voltage", "Estabilidad de tensión", voltage.run),

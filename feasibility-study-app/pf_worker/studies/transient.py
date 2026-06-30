@@ -1,4 +1,4 @@
-"""Transient Stability (pestaña 3) — réplica del estudio Sajoma §9.2 (Cuadro 18 + Figuras 19/29).
+"""Transient Stability (pestaña 3) — estabilidad transitoria ante fallas (tabla de CCT + gráficos).
 
   - Corrida BASE sin falla (con planta) a 60 s: muestra tensión, frecuencia y velocidad para ver dónde
     se estabiliza el sistema antes de simular las fallas.

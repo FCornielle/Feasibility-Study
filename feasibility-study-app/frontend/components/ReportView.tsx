@@ -53,7 +53,7 @@ export default function ReportView({ result }: { result: any }) {
       <div className="report-head card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <h2 style={{ margin: 0 }}>Estudio de Acceso al SENI</h2>
+            <h2 style={{ margin: 0 }}>Estudio de Interconexión al SENI</h2>
             <p style={{ color: "var(--muted)", margin: "4px 0" }}>
               Subestación <b>{result.substation}</b>
               {result.pcc && <> · PCC {result.pcc.name} ({result.pcc.kv} kV)</>}

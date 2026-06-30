@@ -6,7 +6,7 @@ Valores numéricos pendientes de OCR (FRT, RoCoF, damping) se cierran en docs/PE
 from __future__ import annotations
 
 # Estado estacionario
-VOLT_PU_MIN = 0.95          # ±5% en barras de generadores y 69/138/345 kV (Sajoma §3.1.1.a, §3.6)
+VOLT_PU_MIN = 0.95          # ±5% en barras de generadores y 69/138/345 kV (Cód. Conexión §3.1.1.a, §3.6)
 VOLT_PU_MAX = 1.05
 LOADING_MAX_PCT = 100.0     # sin sobrecarga en operación normal y N-1 (§3.1.1.a, §10.2.g)
 

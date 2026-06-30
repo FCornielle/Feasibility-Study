@@ -1,11 +1,11 @@
-"""Small-Signal Stability (pestaña 2) — dos secciones, como el estudio Sajoma §9.1.
+"""Small-Signal Stability (pestaña 2) — dos secciones (autovalores/amortiguamiento + perturbación).
 
 A) Análisis de autovalores y amortiguamiento: ante una perturbación pequeña se extraen los modos
    electromecánicos (autovalores λ = σ ± jω) por matrix-pencil/Prony de la respuesta RMS, y se reporta
    el ÍNDICE DE AMORTIGUAMIENTO del modo crítico, SIN y CON planta (mejora o no).
    (ComMod, el solver modal nativo de PowerFactory, no converge por API en este modelo; ver PENDIENTES.)
 B) Perturbación pequeña: se grafica la velocidad de los generadores más DISTANTES del PCC (los que
-   tienden a perder sincronismo), SIN y CON planta (estilo Figura 17 de Sajoma).
+   tienden a perder sincronismo), SIN y CON planta.
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def _analyze(speeds):
     modes = dynamics.modes_from_signals(sigs, DT) if sigs else []
 
     # Veredicto ROBUSTO: amortiguamiento del envolvente de la oscilación dominante del COI por
-    # decremento logarítmico (como Sajoma). Tomar el "modo de menor amortiguamiento" del matrix-pencil
+    # decremento logarítmico. Tomar el "modo de menor amortiguamiento" del matrix-pencil
     # es frágil: siempre aparecen autovalores espurios cercanos a 0/negativo y el mínimo agarra el peor.
     post_coi = [coi[i] for i in range(n) if any_t[i] > t0]
     dr = dynamics.damping_ratio(post_coi) if len(post_coi) > 20 else None

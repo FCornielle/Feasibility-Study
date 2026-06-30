@@ -1,6 +1,6 @@
 """Estudio Steady State (Etapa 3): flujo de carga + N-1 + cortocircuito en el PCC.
 
-Patrón del Estudio Sajoma: comparación **sin planta** (caso base) vs **con planta** (PV+BESS),
+Patrón de referencia: comparación **sin planta** (caso base) vs **con planta** (PV+BESS),
 emitiendo PASA/FALLA contra los criterios del Código de Conexión (ver criteria.py / docs).
 
 Corre dentro de `PFRunSandbox`, por lo que todo lo creado/modificado se revierte y el proyecto
@@ -377,7 +377,7 @@ def _local_lines(app, sub):
 
 
 def _contingency_matrix(app, sub, max_lines: int = 14) -> dict:
-    """Matriz N-1 estilo Sajoma: cargabilidad de cada línea local bajo la salida de cada línea local."""
+    """Matriz N-1: cargabilidad de cada línea local bajo la salida de cada línea local."""
     by_deg = _local_lines_by_degree(app, sub)[:max_lines]
     monitored = [ln for ln, _ in by_deg]
     meta = [{"name": ln.loc_name, "degree": d} for ln, d in by_deg]
@@ -583,7 +583,7 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         data["contingency"] = _contingency_matrix(app, sub)
         report("evaluando criterios", 90)
 
-    # --- veredicto por DELTA: la planta no debe INTRODUCIR ni EMPEORAR violaciones (criterio Sajoma) ---
+    # --- veredicto por DELTA: la planta no debe INTRODUCIR ni EMPEORAR violaciones ---
     base, wp = data["base"], data["with_plant"]
     base_v = {v["bus"] for v in base["voltage_violations"]}
     base_o = {o["elem"] for o in base["overloads"]}

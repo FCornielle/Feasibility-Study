@@ -26,7 +26,7 @@ Proceso que habla con PowerFactory 2024 vía el módulo `powerfactory` (modo eng
   tensión **energizada** de la subestación). `criteria.py` centraliza umbrales (±5%, <100%, 59.2 Hz).
 - Ejecutar: `python studies/steady_state.py <SUBESTACION> <PV_MW> <BESS_MW> <BESS_MWH>`
   (ej.: `python studies/steady_state.py ZNARAD 50 20 80`). Usar `PYTHONIOENCODING=utf-8` en consola Windows.
-- Validado en ZNARAD (Naranjo, punto de conexión del estudio Sajoma): PCC 345 kV, Ikss 3φ≈6.6 kA; proyecto limpio.
+- Validado en ZNARAD (Naranjo): PCC 345 kV, Ikss 3φ≈6.6 kA; proyecto limpio.
 
 ## Notas de operación del engine
 - **`GetApplicationExt()` solo una vez por proceso** ("cannot be started again in the same process"); por eso el

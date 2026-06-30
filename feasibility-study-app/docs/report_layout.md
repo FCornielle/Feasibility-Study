@@ -1,14 +1,12 @@
-# Layout del reporte de referencia — *Estudio de Acceso al SENI* (Parque Eólico Sajoma)
+# Layout del reporte de interconexión al SENI (estructura de referencia)
 
-> Fuente: `Estudio de interconexion PE Sajoma.pdf` (143 págs, EGE HAINA, Dic. 2018, Ing. Walter von Ledebur).
-> Es el **estudio de acceso/interconexión modelo** que la webapp debe reproducir. Sajoma es un parque **eólico**;
-> nuestra app conecta **PV + BESS**, pero la estructura del reporte y los criterios son los mismos (mismo
-> *Código de Conexión*). Este documento mapea cada sección del reporte a las **pestañas** de la app y a los
-> **gráficos/tablas** que cada estudio debe generar.
+> Estructura objetivo de un **estudio de acceso/interconexión** al SENI según el *Código de Conexión*.
+> La app conecta **PV + BESS**; este documento mapea cada sección del reporte a las **pestañas** de la app
+> y a los **gráficos/tablas** que cada estudio debe generar.
 
 ## Mapa: sección del reporte → pestaña de la app → salidas
 
-| § Reporte Sajoma | Contenido | Pestaña app | Gráficos / Tablas a generar |
+| § Reporte | Contenido | Pestaña app | Gráficos / Tablas a generar |
 |---|---|---|---|
 | 1 Resumen | Síntesis de resultados y veredicto por estudio | (auto) Resumen/portada del run | Tabla resumen PASA/FALLA por estudio |
 | 2–3 Marco de referencia | Regulaciones, ubicación, punto de conexión, tecnología, modelo, demanda, **criterios** | Encabezado del run + `criteria.md` | Ficha del proyecto (PV MW, BESS MW/MWh, PCC, tensión), mapa de ubicación |
@@ -26,26 +24,26 @@
 
 ## Índice de FIGURAS del reporte (patrón visual a emular)
 - Ubicación geográfica y esquema de conexión (→ **mapa** de la app).
-- Curva de potencia del aerogenerador / *(en PV: curva de planta solar + perfil BESS)*.
-- **Comparación de niveles de tensión en barras** (con/sin planta, líneas de límite ±0.05 pu). — Fig. 9, 10.
-- Aporte de corriente reactiva en huecos de tensión; tolerancias FRT ante caídas de tensión. — Fig. 12, 13.
-- **Comparación de corrientes Ikss [kA] de cortocircuito** (sin vs con). — Fig. 14.
-- **Raíces de los modos de oscilación** (sin vs con). — Fig. 15, 16.
-- **Oscilaciones de rotores** (sin vs con). — Fig. 17, 18.
-- **Fallas por SE** (curvas durante falla, con/sin planta), múltiples SSEE a 138/345 kV. — Fig. 19–29.
-- Tensiones durante falla/despeje/**recierre**. — Fig. 30, 31.
-- Respuesta de los grupos a la **variación de tensión** en el PCC. — Fig. 32.
-- **Frecuencia eléctrica** ante desconexión de la planta y ante desconexión de una unidad grande. — Fig. 33, 34.
+- Curva de potencia de la planta solar + perfil del BESS.
+- **Comparación de niveles de tensión en barras** (con/sin planta, líneas de límite ±0.05 pu).
+- Aporte de corriente reactiva en huecos de tensión; tolerancias FRT ante caídas de tensión.
+- **Comparación de corrientes Ikss [kA] de cortocircuito** (sin vs con).
+- **Raíces de los modos de oscilación** (sin vs con).
+- **Oscilaciones de rotores** (sin vs con).
+- **Fallas por SE** (curvas durante falla, con/sin planta), múltiples SSEE a 138/345 kV.
+- Tensiones durante falla/despeje/**recierre**.
+- Respuesta de los grupos a la **variación de tensión** en el PCC.
+- **Frecuencia eléctrica** ante desconexión de la planta y ante desconexión de una unidad grande.
 
 ## Índice de CUADROS (tablas) del reporte
 - Demandas consideradas (máx/mín, laborable/feriado).
 - Parque de generación conectado/previsto (Fuente OC) y **orden de mérito** (Fuente OC) → alimenta despacho.
 - Despachos de máquinas (convencionales/no convencionales) en demanda máx y mín.
 - Balances por región (Sur, DN, Este, Norte).
-- **Niveles de tensión kV y pu** por barra, con/sin planta (demanda máx y mín). — Cuadros 12, 13.
-- **Carga vs límite térmico %** (datos de fábrica). — Cuadros 14, 15.
-- **Potencias y corrientes de cortocircuito** (máx/mín) por barra, con/sin planta. — Cuadros 16, 17.
-- **Duración de estabilidad transitoria** ante falla severa sin pérdida de sincronismo. — Cuadro 18.
+- **Niveles de tensión kV y pu** por barra, con/sin planta (demanda máx y mín).
+- **Carga vs límite térmico %** (datos de fábrica).
+- **Potencias y corrientes de cortocircuito** (máx/mín) por barra, con/sin planta.
+- **Duración de estabilidad transitoria** ante falla severa sin pérdida de sincronismo.
 
 ## Patrón clave para TODAS las pestañas
 Cada estudio se presenta como **comparación "sin planta" vs "con planta"** (caso base vs caso con PV+BESS),

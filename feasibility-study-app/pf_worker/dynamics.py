@@ -7,7 +7,7 @@ Patrón validado contra PDD 30-09-2025:
   eventos: IntEvt.CreateObject('EvtOutage'|'EvtShc'|'EvtSwitch'); attrs time, p_target.
 
 Nota: ComMod (análisis modal) no converge en este modelo sin configuración especial, por eso el
-small-signal se evalúa por amortiguamiento de la oscilación tras un pulso (como en el estudio Sajoma).
+small-signal se evalúa por amortiguamiento de la oscilación tras un pulso.
 """
 from __future__ import annotations
 
