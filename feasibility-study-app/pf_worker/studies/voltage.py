@@ -38,13 +38,14 @@ PHASE_OPEN_MS = 150        # apertura de la fase fallada [ms]
 RECLOSE_MS = 600           # re-cierre exitoso (total desde la falla) [ms]
 R_FAULT = 2.0              # resistencia de falla [Ω] (cortocircuito monofásico, fase A)
 TSTOP_FAULT = 3.0         # ventana de la prueba de falla [s]
-VAR_OPEN_T = 1.0          # se desconecta el capacitor [s]
-VAR_CLOSE_T = 2.0        # se reconecta 1 s después [s]
-TSTOP_VAR = 4.0          # ventana de la prueba de variación de tensión [s]
+CAP_MVAR = 5.0           # banco de capacitores maniobrado en el PCC [Mvar] (como el estudio de referencia)
+VAR_OPEN_T = 0.5          # se desconecta el capacitor [s]
+VAR_CLOSE_T = 1.0        # se reconecta 500 ms después [s]
+TSTOP_VAR = 2.5         # ventana de la prueba de variación de tensión [s]
 PARK_T = 99999.0         # "aparcar" un evento (que no dispare en una corrida que no lo usa)
 N_MONITOR_BUSES = 6      # barras cuya tensión se grafica (>5, de 1.er/2.º/3.er grado)
 V_RECOVER = 0.90        # umbral de tensión recuperada [pu]
-SHC_1PH = 2             # EvtShc i_shc: 2 = cortocircuito monofásico a tierra (4 = despeje)
+SHC_1PH = 3             # EvtShc i_shc: 3 = cortocircuito MONOFÁSICO a tierra (hueco moderado; 4 = despeje)
 
 
 def _hour_from_scenario(name):
@@ -111,22 +112,19 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         bus_labels = {b.GetFullName(): f"{disp.get(s, s)} · {round(b.GetAttribute('uknom'))} kV"
                       for b, d, s in all_buses}
 
-        # Banco de capacitores en el PCC para la prueba de variación de tensión (§9.3.2).
+        # Banco de capacitores de CAP_MVAR en el PCC para la prueba de variación de tensión: se modela como
+        # una fuente reactiva conmutable de magnitud EXACTA (qlini < 0 = inyección capacitiva), porque el
+        # ElmShnt no permite fijar los Mvar de forma fiable por API. Conectado al inicio (inyecta +CAP_MVAR);
+        # se desconecta y reconecta para crear la variación de tensión.
         grid = pv_bess.grid_of(pcc)
         cub = sb.create(pcc, "StaCubic", "Cub_CAP")
-        cap = sb.create(grid, "ElmShnt", "CAP_VAR")
+        cap = sb.create(grid, "ElmLod", "CAP_VAR")
         cap.SetAttribute("bus1", cub)
-        for a, v in [("shtype", 1), ("ushnm", pcc.GetAttribute("uknom")),
-                     ("qcapn", 30.0), ("ncapa", 3), ("ncapx", 3), ("outserv", 0)]:
-            try:
-                cap.SetAttribute(a, v)
-            except Exception:
-                pass
-        if app.GetFromStudyCase("ComLdf").Execute() == 0:
-            try:
-                data["cap_mvar"] = round(cap.GetAttribute("Qact"), 1)
-            except Exception:
-                data["cap_mvar"] = None
+        cap.SetAttribute("plini", 0.0)
+        cap.SetAttribute("qlini", -CAP_MVAR)     # (-) Mvar = inyecta reactivo (capacitor)
+        cap.SetAttribute("outserv", 0)
+        data["cap_mvar"] = CAP_MVAR
+        app.GetFromStudyCase("ComLdf").Execute()
 
         # Eventos (creados una vez; se "aparcan"/activan cambiando el tiempo según la prueba).
         fault_evt = dynamics.add_event(sb, app, "EvtShc", "fault_1ph", PARK_T, target=pcc, i_shc=SHC_1PH)
