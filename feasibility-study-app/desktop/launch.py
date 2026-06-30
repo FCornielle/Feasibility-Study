@@ -105,19 +105,27 @@ def pick(title: str, options: list[str], default: str | None = None) -> str:
 
     root = tk.Tk()
     root.title(title)
-    root.geometry("440x150")
+    root.geometry("440x160")
     root.eval("tk::PlaceWindow . center")
     var = tk.StringVar(value=default or options[0])
     ttk.Label(root, text=title, font=("Segoe UI", 10)).pack(padx=20, pady=(18, 6))
-    ttk.Combobox(root, textvariable=var, values=options, state="readonly", width=46).pack(padx=20)
+    cb = ttk.Combobox(root, textvariable=var, values=options, state="readonly", width=46)
+    cb.pack(padx=20)
     chosen = {"v": var.get()}
 
-    def ok():
+    def ok(_evt=None):
         chosen["v"] = var.get()
         root.destroy()
 
-    ttk.Button(root, text="Aceptar", command=ok).pack(pady=16)
+    btn = ttk.Button(root, text="Aceptar (Enter)", command=ok)
+    btn.pack(pady=16)
     root.protocol("WM_DELETE_WINDOW", ok)
+    # Confirmar con Enter sobre la opción ya seleccionada (autoseleccionada por defecto), sin tener que
+    # hacer clic. La ventana toma el foco al frente para poder pulsar Enter directamente.
+    root.bind("<Return>", ok)
+    root.bind("<KP_Enter>", ok)
+    root.attributes("-topmost", True)
+    root.after(50, lambda: (root.focus_force(), btn.focus_set()))
     root.mainloop()
     return chosen["v"]
 
@@ -228,10 +236,11 @@ def role_shell():
         return
 
     import webview
+    # Abre maximizada (ocupa toda la pantalla, conservando los controles de la ventana).
     webview.create_window(
         f"Estudios de Interconexión PV+BESS — {project} (PF {version})",
         f"http://127.0.0.1:{port}/",
-        width=1500, height=950,
+        width=1500, height=950, maximized=True,
     )
     try:
         webview.start()

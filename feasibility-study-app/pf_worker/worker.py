@@ -106,7 +106,12 @@ def main():
             print(f"Job huérfano {j['run_id']} marcado como error.", flush=True)
     print(f"Worker listo (once={once}). Esperando trabajos en {store.dir}")
     while True:
-        did = process_one(app, store)
+        try:
+            did = process_one(app, store)
+        except Exception as e:  # nunca tumbar el worker: un fallo aislado dejaría la cola atascada
+            print(f"process_one falló (se continúa): {e}", flush=True)
+            time.sleep(1.0)
+            continue
         if once and did:
             break
         if not did:

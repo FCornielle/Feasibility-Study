@@ -32,7 +32,16 @@ class JobStore:
         tmp = self._path(job["run_id"]) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(job, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self._path(job["run_id"]))
+        # os.replace puede fallar transitoriamente en Windows (WinError 5: el .json está abierto por un
+        # lector/antivirus). Reintentar evita que el worker crashee y deje la cola atascada en "en cola".
+        for attempt in range(8):
+            try:
+                os.replace(tmp, self._path(job["run_id"]))
+                return
+            except OSError:
+                if attempt == 7:
+                    raise
+                time.sleep(0.15)
 
     # ---- API backend ----
     def create(self, study: str, substation: str, params: dict) -> dict:
