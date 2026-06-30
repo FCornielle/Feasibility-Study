@@ -88,6 +88,17 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga base no convergió.")
         pcc = pv_bess.pick_pcc(app, sub, energized=True)
+        # Si la barra de conexión no está energizada en este escenario, el RMS daría gráficos planos
+        # (tensión nominal sin respuesta a la falla): se aborta con un mensaje claro.
+        try:
+            u_pcc = pcc.GetAttribute("m:u")
+        except Exception:
+            u_pcc = None
+        if u_pcc is None or u_pcc < 0.5:
+            raise RuntimeError(
+                f"La barra de conexión de '{sub_name}' no está energizada en este escenario (tensión nula). "
+                f"El estudio de estabilidad de tensión requiere una subestación energizada: elige otra o revisa "
+                f"el estado de conexión de esta subestación en el modelo.")
         data["pcc"] = {"name": pcc.loc_name, "kv": round(pcc.GetAttribute("uknom"), 1)}
         scen = app.GetActiveScenario()
         data["scenario"] = {"name": scen.loc_name if scen else None}
@@ -228,8 +239,33 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             q_sources.append((plant["bess"], "BESS"))
         else:
             plant["bess"].SetAttribute("outserv", 1)
+        # LDF con la planta (aún en Q constante) para fijar el punto de operación.
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga con planta no convergió.")
+        # Las unidades despachadas pasan a regular TENSIÓN alrededor de la tensión actual del PCC, con el
+        # reactivo LIMITADO a la placa del inversor (±sgn Mvar). Así entregan/absorben reactivo ante huecos
+        # y variaciones de tensión (soporte de tensión / FRT) de forma acotada, y en régimen el aporte es ~0.
+        try:
+            vset = round(pcc.GetAttribute("m:u"), 4) or 1.0
+        except Exception:
+            vset = 1.0
+        for g, _ in q_sources:
+            try:
+                qlim = abs(g.GetAttribute("sgn")) or 25.0
+                g.SetAttribute("av_mode", "constv")
+                g.SetAttribute("usetp", vset)
+                g.SetAttribute("q_max", qlim)
+                g.SetAttribute("q_min", -qlim)
+            except Exception:
+                pass
+        if app.GetFromStudyCase("ComLdf").Execute() != 0:
+            for g, _ in q_sources:          # si el control de tensión no converge, revertir a Q constante
+                try:
+                    g.SetAttribute("av_mode", "constq")
+                except Exception:
+                    pass
+            if app.GetFromStudyCase("ComLdf").Execute() != 0:
+                raise RuntimeError("Flujo de carga con planta no convergió.")
         data["dispatch"] = {"hour": hour, "pv_out_mw": pv_out, "bess_out_mw": bess_out,
                             "reactive_sources": [n for _, n in q_sources]}
 
