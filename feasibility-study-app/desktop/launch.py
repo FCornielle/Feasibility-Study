@@ -117,7 +117,7 @@ def pick(title: str, options: list[str], default: str | None = None) -> str:
         chosen["v"] = var.get()
         root.destroy()
 
-    btn = ttk.Button(root, text="Aceptar (Enter)", command=ok)
+    btn = ttk.Button(root, text="Aceptar", command=ok)
     btn.pack(pady=16)
     root.protocol("WM_DELETE_WINDOW", ok)
     # Confirmar con Enter sobre la opción ya seleccionada (autoseleccionada por defecto), sin tener que
@@ -130,14 +130,28 @@ def pick(title: str, options: list[str], default: str | None = None) -> str:
     return chosen["v"]
 
 
+_probe_last_error = {"msg": ""}
+
+
 def probe_projects(version: str) -> list[str]:
+    """Lista los proyectos de la versión elegida. Reintenta en PROCESOS frescos: si la licencia está
+    momentáneamente ocupada (PF recién cerrado, o el motor aún liberándola) cada --probe es un proceso
+    nuevo (GetApplicationExt solo puede llamarse una vez por proceso), así que reintentar el subproceso
+    es la forma correcta de esperar a que se libere."""
     env = dict(os.environ, PF_VERSION=version)
-    try:
-        out = subprocess.run(_self_cmd("--probe"), env=env, capture_output=True, text=True, timeout=120)
-        data = json.loads(out.stdout.strip().splitlines()[-1])
-        return data.get("projects", [])
-    except Exception:
-        return []
+    for attempt in range(6):
+        try:
+            out = subprocess.run(_self_cmd("--probe"), env=env, capture_output=True, text=True, timeout=90)
+            line = (out.stdout or "").strip().splitlines()
+            data = json.loads(line[-1]) if line else {}
+            if data.get("projects"):
+                return data["projects"]
+            _probe_last_error["msg"] = data.get("error", "") or _probe_last_error["msg"]
+        except Exception as e:  # noqa: BLE001
+            _probe_last_error["msg"] = str(e)
+        if attempt < 5:
+            time.sleep(7)
+    return []
 
 
 def free_port() -> int:
@@ -197,8 +211,13 @@ def role_shell():
 
     projects = probe_projects(version)
     if not projects:
-        _error(f"No se pudieron listar proyectos de PowerFactory {version}.\n"
-               f"¿Está PF disponible y la licencia libre?")
+        _error(
+            f"No se pudieron listar los proyectos de PowerFactory {version}.\n\n"
+            "Si tienes PowerFactory ABIERTO, ciérralo: el motor (que usa esta aplicación) y la interfaz "
+            "gráfica no pueden tomar la licencia a la vez.\n\n"
+            "Si acabas de cerrar una corrida, espera ~30 s a que se libere la licencia y vuelve a abrir "
+            "la aplicación."
+            + (f"\n\nDetalle: {_probe_last_error['msg']}" if _probe_last_error["msg"] else ""))
         return
     default_proj = connect.DEFAULT_PROJECT if connect.DEFAULT_PROJECT in projects else projects[0]
     project = projects[0] if len(projects) == 1 else pick("Proyecto de PowerFactory", projects, default_proj)
