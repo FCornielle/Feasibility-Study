@@ -8,22 +8,35 @@ import {
 import ComplianceTable from "@/components/ComplianceTable";
 import { SeriesChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
+import { getRun, saveRun } from "@/lib/runStore";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge" };
 
 export default function DynamicStudy({ study }: { study: string }) {
+  const cached = getRun(study);
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [params, setParams] = useState<RunParams>(DEFAULT_PARAMS);
-  const [job, setJob] = useState<RunJob | null>(null);
-  const [result, setResult] = useState<any | null>(null);
+  const [selected, setSelected] = useState<string | null>(cached.selected ?? null);
+  const [params, setParams] = useState<RunParams>(cached.params ?? DEFAULT_PARAMS);
+  const [job, setJob] = useState<RunJob | null>(cached.job ?? null);
+  const [result, setResult] = useState<any | null>(cached.result ?? null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Reinicia el resultado al cambiar de pestaña/estudio.
-  useEffect(() => { setJob(null); setResult(null); }, [study]);
+  // Preserva la última corrida (y selección) por estudio al cambiar de pestaña.
+  useEffect(() => { saveRun(study, { selected, params, job, result }); }, [study, selected, params, job, result]);
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
+  useEffect(() => {
+    if (job && (job.status === "queued" || job.status === "running")) {
+      const close = watchRun(job.run_id, (j) => {
+        setJob(j);
+        if (j.status === "done") { getResult(j.run_id).then(setResult).catch(() => {}); close(); }
+        if (j.status === "error") close();
+      });
+      return close;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selSub = subs.find((s) => s.name === selected) || null;
   const matches = useMemo(

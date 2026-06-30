@@ -184,6 +184,42 @@ export function SpeedChart({ series, title, yLabel }: { series: any; title?: str
   );
 }
 
+// Gráfico de doble eje: tensión de las barras (eje izquierdo, pu) + reactivo de la planta (eje derecho, Mvar).
+const VOLT_COLORS = ["#2e86ff", "#4aa3ff", "#7bc0ff", "#5dd6c0", "#9b8cff", "#c0c8d4"];
+const Q_COLORS = ["#e74c3c", "#f39c12", "#e67e22"];
+export function DualAxisChart({ voltages, reactive, title }: { voltages: any; reactive: any; title?: string }) {
+  const vt = voltages?.traces ?? [];
+  const qt = reactive?.traces ?? [];
+  if (!vt.length && !qt.length)
+    return <ChartFailBox>Sin datos: el RMS no produjo resultados (no convergió o sin señales monitoreadas).</ChartFailBox>;
+  const data = [
+    ...vt.map((tr: any, i: number) => ({
+      x: voltages.x, y: tr.y, type: "scatter", mode: "lines", name: tr.name, yaxis: "y",
+      line: { width: 1.3, color: VOLT_COLORS[i % VOLT_COLORS.length] },
+    })),
+    ...qt.map((tr: any, i: number) => ({
+      x: reactive.x, y: tr.y, type: "scatter", mode: "lines", name: `Q ${tr.name}`, yaxis: "y2",
+      line: { width: 2.2, color: Q_COLORS[i % Q_COLORS.length] },
+    })),
+  ];
+  return (
+    <Plot
+      data={data}
+      layout={{
+        ...DARK, height: 360,
+        title: { text: title ?? "", font: { size: 13, color: "#b8c4d2" } },
+        legend: { orientation: "h", y: -0.22, font: { size: 9 } },
+        xaxis: { title: "t [s]" },
+        yaxis: { title: "u [pu]" },
+        yaxis2: { title: "Q de la planta [Mvar]", overlaying: "y", side: "right", showgrid: false, zeroline: false },
+        margin: { l: 60, r: 62, t: 42, b: 70 },
+      }}
+      config={{ displayModeBar: false, responsive: true, scrollZoom: true }}
+      style={{ width: "100%" }}
+    />
+  );
+}
+
 interface ScRow { bus: string; sub?: string | null; ikss_base: number | null; ikss_plant: number | null; }
 export function ShortCircuitChart({ rows, subNames }: { rows: ScRow[]; subNames?: Record<string, string> }) {
   const r = rows.filter((x) => x.ikss_base != null || x.ikss_plant != null);

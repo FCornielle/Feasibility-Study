@@ -3,49 +3,43 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
-import { SpeedChart } from "@/components/Charts";
+import { SpeedChart, DualAxisChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
 import { HOURS } from "@/lib/tabs";
+import { getRun, saveRun } from "@/lib/runStore";
+
+const CACHE_KEY = "voltage";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge", scale_loads: 1 };
 
-function Section({ title, subtitle, data, showReactive }: { title: string; subtitle: string; data: any; showReactive?: boolean }) {
-  if (!data) return null;
-  const Side = ({ s, label, color }: { s: any; label: string; color: string }) => (
-    <div>
-      <h4 style={{ margin: "0 0 6px", color }}>{label}</h4>
-      <SpeedChart series={s?.voltages} title="Tensión de las barras" yLabel="u [pu]" />
-      {showReactive && s?.reactive?.traces?.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <SpeedChart series={s.reactive} title="Potencia reactiva de la planta" yLabel="Q [Mvar]" />
-        </div>
-      )}
-    </div>
-  );
-  return (
-    <div className="card">
-      <h3>{title}</h3>
-      <p className="phase" style={{ marginTop: -4, marginBottom: 10 }}>{subtitle}</p>
-      <div className="grid2">
-        <Side s={data.sin} label="● SIN planta" color="var(--warn)" />
-        <Side s={data.con} label="✚ CON planta" color="var(--accent)" />
-      </div>
-    </div>
-  );
-}
-
 export default function VoltageStudy() {
+  const cached = getRun(CACHE_KEY);
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [params, setParams] = useState<RunParams>(DEFAULT_PARAMS);
-  const [scenario, setScenario] = useState<string>("");
-  const [job, setJob] = useState<RunJob | null>(null);
-  const [result, setResult] = useState<any | null>(null);
+  const [selected, setSelected] = useState<string | null>(cached.selected ?? null);
+  const [params, setParams] = useState<RunParams>(cached.params ?? DEFAULT_PARAMS);
+  const [scenario, setScenario] = useState<string>(cached.scenario ?? "");
+  const [job, setJob] = useState<RunJob | null>(cached.job ?? null);
+  const [result, setResult] = useState<any | null>(cached.result ?? null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
+  // Preserva la última corrida (y la selección) al cambiar de pestaña.
+  useEffect(() => { saveRun(CACHE_KEY, { selected, scenario, params, job, result }); },
+    [selected, scenario, params, job, result]);
+  // Si al volver hay una corrida en curso, re-engancha el watcher para que termine de actualizar.
+  useEffect(() => {
+    if (job && (job.status === "queued" || job.status === "running")) {
+      const close = watchRun(job.run_id, (j) => {
+        setJob(j);
+        if (j.status === "done") { getResult(j.run_id).then(setResult).catch(() => {}); close(); }
+        if (j.status === "error") close();
+      });
+      return close;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const selSub = subs.find((s) => s.name === selected) || null;
   const matches = useMemo(
     () => (query ? subs.filter((s) => (s.display_name || s.name).toLowerCase().includes(query.toLowerCase())).slice(0, 8) : []),
@@ -139,7 +133,7 @@ export default function VoltageStudy() {
           </div>
 
           <div className="card">
-            <h3>9.3.1 — Falla monofásica con re-cierre exitoso</h3>
+            <h3>Falla monofásica con re-cierre exitoso</h3>
             <p className="phase" style={{ marginTop: -4 }}>La falla simulada tiene en cuenta:</p>
             <ul className="phase" style={{ margin: "2px 0 10px 18px" }}>
               {(result.fault?.detail ?? []).map((d: string, i: number) => <li key={i}>{d}</li>)}
@@ -164,12 +158,29 @@ export default function VoltageStudy() {
             </div>
           </div>
 
-          <Section
-            title="9.3.2 — Respuesta a una variación de tensión en el PCC"
-            subtitle={`Se desconecta el banco de capacitores (${result.cap_mvar ?? "—"} Mvar) en el PCC en t=${result.variation?.open_t ?? 1} s y se reconecta en t=${result.variation?.close_t ?? 2} s. Con la planta se verifica la compensación reactiva ante la variación de tensión.`}
-            data={result.variation}
-            showReactive
-          />
+          <div className="card">
+            <h3>Respuesta a una variación de tensión en el PCC</h3>
+            <p className="phase" style={{ marginTop: -4, marginBottom: 10 }}>
+              Se desconecta el banco de capacitores ({result.cap_mvar ?? "—"} Mvar) en el PCC en
+              t={result.variation?.open_t ?? 1} s y se reconecta en t={result.variation?.close_t ?? 2} s. Con la
+              planta se verifica la compensación reactiva ante la variación de tensión (tensión de la barra y
+              reactivo de la planta en un gráfico de doble eje).
+            </p>
+            <div className="grid2">
+              <div>
+                <h4 style={{ margin: "0 0 6px", color: "var(--warn)" }}>● SIN planta</h4>
+                <SpeedChart series={result.variation?.sin?.voltages} title="Tensión de las barras" yLabel="u [pu]" />
+              </div>
+              <div>
+                <h4 style={{ margin: "0 0 6px", color: "var(--accent)" }}>✚ CON planta</h4>
+                <DualAxisChart
+                  voltages={result.variation?.con?.voltages}
+                  reactive={result.variation?.con?.reactive}
+                  title="Tensión de las barras y reactivo de la planta"
+                />
+              </div>
+            </div>
+          </div>
 
           <p className="phase">
             Ambas pruebas se ejecutan SIN y CON la planta PV+BESS. El despacho de la planta sigue la hora del

@@ -6,7 +6,9 @@ import ComplianceTable from "@/components/ComplianceTable";
 import { EigenvalueChart, SpeedChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
 import { HOURS } from "@/lib/tabs";
+import { getRun, saveRun } from "@/lib/runStore";
 
+const CACHE_KEY = "small-signal";
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge", scale_loads: 1 };
 
@@ -30,16 +32,30 @@ function ModesTable({ modes }: { modes: any[] }) {
 }
 
 export default function SmallSignalStudy() {
+  const cached = getRun(CACHE_KEY);
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [params, setParams] = useState<RunParams>(DEFAULT_PARAMS);
-  const [scenario, setScenario] = useState<string>("");
-  const [job, setJob] = useState<RunJob | null>(null);
-  const [result, setResult] = useState<any | null>(null);
+  const [selected, setSelected] = useState<string | null>(cached.selected ?? null);
+  const [params, setParams] = useState<RunParams>(cached.params ?? DEFAULT_PARAMS);
+  const [scenario, setScenario] = useState<string>(cached.scenario ?? "");
+  const [job, setJob] = useState<RunJob | null>(cached.job ?? null);
+  const [result, setResult] = useState<any | null>(cached.result ?? null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
+  useEffect(() => { saveRun(CACHE_KEY, { selected, scenario, params, job, result }); },
+    [selected, scenario, params, job, result]);
+  useEffect(() => {
+    if (job && (job.status === "queued" || job.status === "running")) {
+      const close = watchRun(job.run_id, (j) => {
+        setJob(j);
+        if (j.status === "done") { getResult(j.run_id).then(setResult).catch(() => {}); close(); }
+        if (j.status === "error") close();
+      });
+      return close;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const selSub = subs.find((s) => s.name === selected) || null;
   const matches = useMemo(
     () => (query ? subs.filter((s) => (s.display_name || s.name).toLowerCase().includes(query.toLowerCase())).slice(0, 8) : []),
@@ -136,7 +152,7 @@ export default function SmallSignalStudy() {
           )}
           {/* Sección A: autovalores y amortiguamiento */}
           <div className="card">
-            <h3>A) Análisis de autovalores y amortiguamiento</h3>
+            <h3>Análisis de autovalores y amortiguamiento</h3>
             <ComplianceTable compliance={result.compliance} />
             <div className="kpi" style={{ margin: "10px 0" }}>
               <div className="item"><div className="v">{di?.sin_planta ?? "—"}%</div><div className="l">amortig. crítico SIN planta</div></div>
@@ -158,7 +174,7 @@ export default function SmallSignalStudy() {
 
           {/* Sección B: perturbación pequeña — velocidad de los generadores distantes */}
           <div className="card">
-            <h3>B) Perturbación pequeña — velocidad de los generadores más distantes</h3>
+            <h3>Perturbación pequeña — velocidad de los generadores más distantes</h3>
             <div className="selected" style={{ marginBottom: 10 }}>Perturbación: {result.perturbation}</div>
             <div className="grid2">
               <div>
