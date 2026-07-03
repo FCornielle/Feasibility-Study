@@ -219,53 +219,23 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
 
         # ---- CON planta ----
         report("modelando PV+BESS", 45)
-        plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
-        # Despacho realista por hora: el PV sigue al sol (de noche no genera) y el BESS sigue el modo
-        # elegido. Una unidad que no genera no aporta reactivo -> se saca de servicio y no se grafica:
-        #   - PV: solo en servicio si hay sol (de lo contrario no produce ni reactivo).
-        #   - BESS: aporta reactivo solo al DESCARGAR; mientras carga solo consume (sin reactivo).
+        # El despacho realista lo resuelve build_pv_bess según la hora del escenario: el PV recibe el
+        # modelo dinámico solo si hay sol; el BESS solo al DESCARGAR (cargando solo consume, sin reactivo);
+        # las unidades no despachadas quedan fuera de servicio. Las despachadas entregan reactivo FRT con
+        # su control REAL (modelo BESS EDM3 clonado, RPC auto-inicializado) — no hay que forzar av_mode.
         hour = _hour_from_scenario(data["scenario"]["name"])
-        solar = pv_bess.solar_factor(hour) if hour is not None else 1.0
-        pv_out = round(pv_mw * solar, 3)
-        plant["pv"].SetAttribute("pgini", pv_out)
+        plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode, hour=hour)
+        pv_out = plant["params"]["pv_out_mw"]
+        bess_out = plant["params"]["bess_out_mw"]            # (+) descarga, (-) carga
         if pv_out > 0:
             q_sources.append((plant["pv"], "PV"))
-        else:
-            plant["pv"].SetAttribute("outserv", 1)
-        bess_out = plant["params"]["bess_out_mw"]            # (+) descarga, (-) carga
         if bess_out > 0:
             q_sources.append((plant["bess"], "BESS"))
-        else:
-            plant["bess"].SetAttribute("outserv", 1)
-        # LDF con la planta (aún en Q constante) para fijar el punto de operación.
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga con planta no convergió.")
-        # Las unidades despachadas pasan a regular TENSIÓN alrededor de la tensión actual del PCC, con el
-        # reactivo LIMITADO a la placa del inversor (±sgn Mvar). Así entregan/absorben reactivo ante huecos
-        # y variaciones de tensión (soporte de tensión / FRT) de forma acotada, y en régimen el aporte es ~0.
-        try:
-            vset = round(pcc.GetAttribute("m:u"), 4) or 1.0
-        except Exception:
-            vset = 1.0
-        for g, _ in q_sources:
-            try:
-                qlim = abs(g.GetAttribute("sgn")) or 25.0
-                g.SetAttribute("av_mode", "constv")
-                g.SetAttribute("usetp", vset)
-                g.SetAttribute("q_max", qlim)
-                g.SetAttribute("q_min", -qlim)
-            except Exception:
-                pass
-        if app.GetFromStudyCase("ComLdf").Execute() != 0:
-            for g, _ in q_sources:          # si el control de tensión no converge, revertir a Q constante
-                try:
-                    g.SetAttribute("av_mode", "constq")
-                except Exception:
-                    pass
-            if app.GetFromStudyCase("ComLdf").Execute() != 0:
-                raise RuntimeError("Flujo de carga con planta no convergió.")
         data["dispatch"] = {"hour": hour, "pv_out_mw": pv_out, "bess_out_mw": bess_out,
-                            "reactive_sources": [n for _, n in q_sources]}
+                            "reactive_sources": [n for _, n in q_sources],
+                            "dynamic": plant.get("dynamic", False)}
 
         report("falla 1φ CON planta", 55)
         fault_con = _capture_fault(plant)

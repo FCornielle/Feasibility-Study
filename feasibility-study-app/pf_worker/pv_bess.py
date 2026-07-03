@@ -112,6 +112,80 @@ def pick_pcc(app, sub, energized: bool = False):
     return max(terms, key=lambda t: t.GetAttribute("uknom"))
 
 
+def find_dynamic_ref(app):
+    """Modelo dinámico de referencia a clonar para dar reactivo FRT a la planta sintética.
+
+    Se usa el modelo de la BESS EDM3 del PDD: sus 4 DSL (APC, RPC, BSM, Control Flags) NO están
+    encriptados y el control de reactivo (RPC) AUTO-INICIALIZA limpio (`inc(Vref)=Vt`), por lo que
+    el modelo compuesto converge en ComInc a cualquier tensión de PCC. Devuelve el ElmComp de
+    referencia, o None si el proyecto no lo trae (entonces la planta cae a genstat estático)."""
+    comps = app.GetCalcRelevantObjects("*.ElmComp")
+    for c in comps:
+        if c.loc_name in ("BESS 1_EDM3", "BESS 2_EDM3"):
+            return c
+    for c in comps:  # cualquier planta cuyo frame sea 'BESS' con DSL editables
+        t = c.GetAttribute("typ_id")
+        if t is not None and t.loc_name == "BESS":
+            return c
+    return None
+
+
+def attach_dynamic_model(sb, app, grid, pcc_term, cub, sgn, pgini, category, name, ref_comp):
+    """Clona el modelo dinámico de referencia (BESS EDM3) sobre un generador nuevo en `cub`.
+
+    `AddCopy` del generador (hereda su configuración RMS de fuente de corriente) + `AddCopy` del
+    ElmComp (trae los 4 DSL y los medidores StaVmea/StaPqmea/PLL); se reapuntan los medidores al
+    PCC y se re-arma `pelm` con el generador nuevo en el slot Converter. Rastreado por el sandbox.
+    Devuelve (gen, comp)."""
+    ref_pelm = list(ref_comp.GetAttribute("pelm"))
+    ref_gen = next(e for e in ref_pelm if e is not None and e.GetClassName() == "ElmGenstat")
+    gen = sb.track(grid.AddCopy(ref_gen, name))
+    gen.SetAttribute("bus1", cub)
+    gen.SetAttribute("sgn", max(sgn, 0.1))
+    gen.SetAttribute("pgini", pgini)
+    gen.SetAttribute("qgini", 0.0)
+    gen.SetAttribute("cCategory", category)
+    gen.SetAttribute("av_mode", "constq")   # LDF a Q=0; el modelo RMS gobierna el reactivo dinámico
+    gen.SetAttribute("outserv", 0)
+    try:
+        gen.SetAttribute("Kfactor", 1.2)
+    except Exception:
+        pass
+    comp = sb.track(grid.AddCopy(ref_comp, name + "_ctrl"))
+    kids = {k.loc_name: k for k in comp.GetContents()}
+    for k in comp.GetContents():         # medidores del comp -> reapuntar al PCC
+        cn = k.GetClassName()
+        if cn in ("StaVmea", "StaVt", "ElmPhi__pll"):
+            if k.HasAttribute("pbusbar"):
+                k.SetAttribute("pbusbar", pcc_term)
+        elif cn == "StaPqmea":
+            if k.HasAttribute("pcubic"):
+                k.SetAttribute("pcubic", cub)
+    new_pelm = [(gen if e is ref_gen else (None if e is None else kids.get(e.loc_name)))
+                for e in ref_pelm]
+    comp.SetAttribute("pelm", new_pelm)
+    return gen, comp
+
+
+def _make_unit(sb, app, grid, pcc, cub, mw, out, category, name, ref_comp):
+    """Crea un generador de la planta. Si está DESPACHADO para inyectar (out>0) y hay modelo de
+    referencia, clona el modelo dinámico (reactivo FRT real); si no (sin sol / cargando / sin
+    modelo), genstat estático (fuera de servicio si no hay despacho)."""
+    dispatched = out is not None and out > 0.05
+    if dispatched and ref_comp is not None:
+        return attach_dynamic_model(sb, app, grid, pcc, cub, mw, out, category, name, ref_comp)
+    gen = sb.create(grid, "ElmGenstat", name)
+    gen.SetAttribute("bus1", cub)
+    gen.SetAttribute("cCategory", category)
+    gen.SetAttribute("sgn", max(mw, 0.1))
+    gen.SetAttribute("pgini", out or 0.0)
+    gen.SetAttribute("qgini", 0.0)
+    gen.SetAttribute("av_mode", "constq")
+    gen.SetAttribute("Kfactor", 1.2)
+    gen.SetAttribute("outserv", 0 if (out is not None and abs(out) > 0.05) else 1)
+    return gen, None
+
+
 def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
                   bess_mode: str = "discharge", hour: int | None = None):
     """Crea PV + BESS conectados a la barra `pcc`. Devuelve objetos y metadatos.
@@ -131,29 +205,17 @@ def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
         pv_out = pv_mw
         bess_out = bess_mw if bess_mode == "discharge" else -bess_mw
 
-    # --- PV (generador estático fotovoltaico) ---
-    cub_pv = sb.create(pcc, "StaCubic", "Cub_PV")
-    pv = sb.create(grid, "ElmGenstat", "PV")
-    pv.SetAttribute("bus1", cub_pv)
-    pv.SetAttribute("cCategory", "Photovoltaic")
-    pv.SetAttribute("sgn", max(pv_mw, 0.1))   # MVA nominal (placa)
-    pv.SetAttribute("pgini", pv_out)          # MW despachados a esta hora
-    pv.SetAttribute("qgini", 0.0)
-    pv.SetAttribute("av_mode", "constq")
-    pv.SetAttribute("Kfactor", 1.2)            # aporte a cortocircuito (~1.2x corriente nominal, inversor)
-    pv.SetAttribute("outserv", 0)
+    # Modelo dinámico de referencia (BESS EDM3, DSL editables + auto-init). Si el proyecto lo trae,
+    # el/los generador(es) despachados reciben control de reactivo FRT real; si no, genstat estático.
+    ref = find_dynamic_ref(app)
 
-    # --- BESS (generador estático, categoría almacenamiento) ---
+    # --- PV: dinámico si hay sol (pv_out>0), estático/fuera de servicio si es de noche ---
+    cub_pv = sb.create(pcc, "StaCubic", "Cub_PV")
+    pv, pv_ctrl = _make_unit(sb, app, grid, pcc, cub_pv, pv_mw, pv_out, "Photovoltaic", "PV", ref)
+
+    # --- BESS: dinámico al DESCARGAR (bess_out>0); estático/consumiendo al cargar; sin aporte si ocioso ---
     cub_b = sb.create(pcc, "StaCubic", "Cub_BESS")
-    bess = sb.create(grid, "ElmGenstat", "BESS")
-    bess.SetAttribute("bus1", cub_b)
-    bess.SetAttribute("cCategory", "Storage")
-    bess.SetAttribute("sgn", max(bess_mw, 0.1))
-    bess.SetAttribute("pgini", bess_out)
-    bess.SetAttribute("qgini", 0.0)
-    bess.SetAttribute("av_mode", "constq")
-    bess.SetAttribute("Kfactor", 1.2)
-    bess.SetAttribute("outserv", 0)
+    bess, bess_ctrl = _make_unit(sb, app, grid, pcc, cub_b, bess_mw, bess_out, "Storage", "BESS", ref)
 
     return {
         "pcc_name": pcc.loc_name,
@@ -162,6 +224,9 @@ def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
         "grid": grid.loc_name,
         "pv": pv,
         "bess": bess,
+        "pv_ctrl": pv_ctrl,       # ElmComp dinámico (o None si estático)
+        "bess_ctrl": bess_ctrl,
+        "dynamic": ref is not None,
         "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode,
                    "hour": hour, "pv_out_mw": pv_out, "bess_out_mw": bess_out},
     }
