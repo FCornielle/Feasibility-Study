@@ -35,7 +35,10 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         data["pcc"] = {"name": pcc.loc_name, "kv": round(pcc.GetAttribute("uknom"), 1)}
 
         report("modelando PV+BESS", 30)
-        plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode)
+        # Estudio de regulación de frecuencia -> BESS de regulación primaria+secundaria (10% de la PV).
+        plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mode=bess_mode, bess_role="frequency")
+        data["params"].update({"bess_mw": plant["params"]["bess_mw"],       # tamaño real (derivado de la PV)
+                               "bess_mwh": plant["params"]["bess_mwh"], "bess_role": "frequency"})
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga con planta no convergió.")
 

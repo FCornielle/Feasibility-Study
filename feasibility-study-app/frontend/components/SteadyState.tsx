@@ -3,7 +3,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import {
   createRun, getResult, getSubstations, watchRun,
-  RunJob, RunParams, Substation,
+  RunJob, RunParams, Substation, deriveBess,
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { VoltageRadar } from "@/components/Charts";
@@ -14,7 +14,7 @@ import { getRun, saveRun } from "@/lib/runStore";
 const CACHE_KEY = "steady";
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 
-const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge", scale_loads: 1 };
+const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 25, bess_mwh: 100, bess_mode: "discharge", scale_loads: 1 };
 const HOURS = Array.from({ length: 24 }, (_, i) => {
   const n = String(i + 1).padStart(2, "0");
   return { value: `P${n}`, label: `P${n} — ${n}:00` };
@@ -111,13 +111,11 @@ export default function SteadyState() {
             )}
             <div className="row">
               <div><label>PV (MW)</label>
-                <input type="number" value={params.pv_mw} onChange={(e) => setParams({ ...params, pv_mw: +e.target.value })} /></div>
-              <div><label>BESS (MW)</label>
-                <input type="number" value={params.bess_mw} onChange={(e) => setParams({ ...params, bess_mw: +e.target.value })} /></div>
+                <input type="number" value={params.pv_mw} onChange={(e) => { const pv = +e.target.value; setParams({ ...params, pv_mw: pv, ...deriveBess(pv, "arbitrage") }); }} /></div>
+              <div><label>BESS de arbitraje</label>
+                <input type="text" readOnly value={`${deriveBess(params.pv_mw, "arbitrage").bess_mw} MW · ${deriveBess(params.pv_mw, "arbitrage").bess_mwh} MWh`} title="50% de la potencia PV, 4 h de energía" /></div>
             </div>
             <div className="row">
-              <div><label>BESS (MWh)</label>
-                <input type="number" value={params.bess_mwh} onChange={(e) => setParams({ ...params, bess_mwh: +e.target.value })} /></div>
               <div><label>Hora del día (escenario)</label>
                 <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
                   <option value="">Auto (escenario activo)</option>

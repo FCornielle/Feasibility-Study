@@ -28,6 +28,27 @@ def bess_factor(hour: int) -> float:
     return 0.0
 
 
+# --- Dimensionamiento del BESS según su ROL (función de la potencia de la planta PV) --------------
+# El BESS no se ingresa a mano: su tamaño se deriva de la PV y del tipo de estudio.
+#   arbitraje  (por defecto, todos los estudios salvo el de frecuencia):
+#              50% de la potencia PV y 4 h de energía  (ej.: PV 100 MW -> BESS 50 MW / 200 MWh).
+#   frecuencia (solo el estudio de regulación de frecuencia):
+#              10% de la potencia PV (5% regulación primaria + 5% secundaria).
+ARBITRAGE_MW_FRAC = 0.50
+ARBITRAGE_HOURS = 4.0
+FREQREG_MW_FRAC = 0.10          # 5% primaria + 5% secundaria
+FREQREG_HOURS = 0.5            # duración corta para regulación de frecuencia (supuesto, ajustable)
+
+
+def bess_sizing(pv_mw: float, role: str = "arbitrage") -> tuple[float, float]:
+    """Devuelve (bess_mw, bess_mwh) según el rol del BESS y la potencia de la planta PV."""
+    if role == "frequency":
+        mw = round(FREQREG_MW_FRAC * pv_mw, 3)
+        return mw, round(mw * FREQREG_HOURS, 3)
+    mw = round(ARBITRAGE_MW_FRAC * pv_mw, 3)     # arbitraje
+    return mw, round(mw * ARBITRAGE_HOURS, 3)
+
+
 _AUX_KEYS = ("aux", "auxiliar", "servicio propio", "serv propio", "ssaa", "ss aa", "s.a.", "propio")
 
 
@@ -186,9 +207,13 @@ def _make_unit(sb, app, grid, pcc, cub, mw, out, category, name, ref_comp):
     return gen, None
 
 
-def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
-                  bess_mode: str = "discharge", hour: int | None = None):
+def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float = 0.0, bess_mwh: float = 0.0,
+                  bess_mode: str = "discharge", hour: int | None = None, bess_role: str = "arbitrage"):
     """Crea PV + BESS conectados a la barra `pcc`. Devuelve objetos y metadatos.
+
+    El BESS se DIMENSIONA a partir de la potencia PV y su ROL (los `bess_mw`/`bess_mwh` que llegan
+    se ignoran): `arbitrage` = 50% de la PV y 4 h (todos los estudios salvo frecuencia); `frequency`
+    = 10% de la PV (5% primaria + 5% secundaria, solo el estudio de regulación de frecuencia).
 
     Si se da `hour` (la hora del escenario de operación), la salida sigue la regulación: el PV
     genera según el sol y el BESS **carga al mediodía / descarga en la noche** (no inyectan a la
@@ -197,6 +222,8 @@ def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
     grid = grid_of(pcc)
     if grid is None:
         raise RuntimeError(f"No se pudo resolver el ElmNet del PCC '{pcc.loc_name}'.")
+
+    bess_mw, bess_mwh = bess_sizing(pv_mw, bess_role)   # el BESS se deriva de la PV según el rol
 
     if hour is not None:
         pv_out = round(pv_mw * solar_factor(hour), 3)
@@ -228,5 +255,5 @@ def build_pv_bess(sb, app, pcc, pv_mw: float, bess_mw: float, bess_mwh: float,
         "bess_ctrl": bess_ctrl,
         "dynamic": ref is not None,
         "params": {"pv_mw": pv_mw, "bess_mw": bess_mw, "bess_mwh": bess_mwh, "bess_mode": bess_mode,
-                   "hour": hour, "pv_out_mw": pv_out, "bess_out_mw": bess_out},
+                   "bess_role": bess_role, "hour": hour, "pv_out_mw": pv_out, "bess_out_mw": bess_out},
     }

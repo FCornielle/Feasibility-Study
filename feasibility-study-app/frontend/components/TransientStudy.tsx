@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation } from "@/lib/api";
+import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { SpeedChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
@@ -11,7 +11,7 @@ import { getRun, saveRun } from "@/lib/runStore";
 const CACHE_KEY = "transient";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
-const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge", scale_loads: 1 };
+const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 25, bess_mwh: 100, bess_mode: "discharge", scale_loads: 1 };
 
 function CCTTable({ rows }: { rows: any[] }) {
   if (!rows?.length) return null;
@@ -114,11 +114,10 @@ export default function TransientStudy() {
             <h3>Planta a interconectar</h3>
             <div className="selected">{selSub ? <>Subestación: <b>{selSub.display_name || selSub.name}</b></> : "Selecciona una subestación…"}</div>
             <div className="row">
-              <div><label>PV (MW)</label><input type="number" value={params.pv_mw} onChange={(e) => setParams({ ...params, pv_mw: +e.target.value })} /></div>
-              <div><label>BESS (MW)</label><input type="number" value={params.bess_mw} onChange={(e) => setParams({ ...params, bess_mw: +e.target.value })} /></div>
+              <div><label>PV (MW)</label><input type="number" value={params.pv_mw} onChange={(e) => { const pv = +e.target.value; setParams({ ...params, pv_mw: pv, ...deriveBess(pv, "arbitrage") }); }} /></div>
+              <div><label>BESS de arbitraje</label><input type="text" readOnly value={`${deriveBess(params.pv_mw, "arbitrage").bess_mw} MW · ${deriveBess(params.pv_mw, "arbitrage").bess_mwh} MWh`} title="50% de la potencia PV, 4 h de energía" /></div>
             </div>
             <div className="row">
-              <div><label>BESS (MWh)</label><input type="number" value={params.bess_mwh} onChange={(e) => setParams({ ...params, bess_mwh: +e.target.value })} /></div>
               <div><label>Hora del día</label>
                 <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
                   <option value="">Auto (escenario activo)</option>

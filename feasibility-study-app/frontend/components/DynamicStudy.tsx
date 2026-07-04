@@ -3,7 +3,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import {
   createRun, getResult, getSubstations, watchRun,
-  RunJob, RunParams, Substation,
+  RunJob, RunParams, Substation, deriveBess,
 } from "@/lib/api";
 import ComplianceTable from "@/components/ComplianceTable";
 import { SeriesChart } from "@/components/Charts";
@@ -15,6 +15,8 @@ const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_m
 
 export default function DynamicStudy({ study }: { study: string }) {
   const cached = getRun(study);
+  // El estudio de frecuencia usa el BESS de regulación (10% de la PV); el resto, el de arbitraje (50%, 4 h).
+  const bessRole: "arbitrage" | "frequency" = study === "frequency" ? "frequency" : "arbitrage";
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(cached.selected ?? null);
@@ -87,13 +89,11 @@ export default function DynamicStudy({ study }: { study: string }) {
           </div>
           <div className="row">
             <div><label>PV (MW)</label>
-              <input type="number" value={params.pv_mw} onChange={(e) => setParams({ ...params, pv_mw: +e.target.value })} /></div>
-            <div><label>BESS (MW)</label>
-              <input type="number" value={params.bess_mw} onChange={(e) => setParams({ ...params, bess_mw: +e.target.value })} /></div>
+              <input type="number" value={params.pv_mw} onChange={(e) => { const pv = +e.target.value; setParams({ ...params, pv_mw: pv, ...deriveBess(pv, bessRole) }); }} /></div>
+            <div><label>{bessRole === "frequency" ? "BESS de frecuencia" : "BESS de arbitraje"}</label>
+              <input type="text" readOnly value={`${deriveBess(params.pv_mw, bessRole).bess_mw} MW · ${deriveBess(params.pv_mw, bessRole).bess_mwh} MWh`} title={bessRole === "frequency" ? "10% de la PV (regulación primaria + secundaria)" : "50% de la potencia PV, 4 h de energía"} /></div>
           </div>
           <div className="row">
-            <div><label>BESS (MWh)</label>
-              <input type="number" value={params.bess_mwh} onChange={(e) => setParams({ ...params, bess_mwh: +e.target.value })} /></div>
             <div><label>Modo BESS</label>
               <select value={params.bess_mode} onChange={(e) => setParams({ ...params, bess_mode: e.target.value as RunParams["bess_mode"] })}>
                 <option value="discharge">Descarga (punta)</option>

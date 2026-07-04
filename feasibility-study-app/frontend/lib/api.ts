@@ -49,6 +49,19 @@ export interface RunRequest extends RunParams {
   scenario?: string | null;
 }
 
+// El BESS se DIMENSIONA a partir de la potencia PV y su rol (no se ingresa a mano):
+//   arbitrage: 50% de la PV y 4 h (todos los estudios salvo el de frecuencia).
+//   frequency: 10% de la PV (5% regulación primaria + 5% secundaria) — solo el estudio de frecuencia.
+export function deriveBess(pvMw: number, role: "arbitrage" | "frequency" = "arbitrage"): { bess_mw: number; bess_mwh: number } {
+  const pv = Number.isFinite(pvMw) ? pvMw : 0;
+  if (role === "frequency") {
+    const mw = +(0.10 * pv).toFixed(1);
+    return { bess_mw: mw, bess_mwh: +(mw * 0.5).toFixed(1) };
+  }
+  const mw = +(0.50 * pv).toFixed(1);
+  return { bess_mw: mw, bess_mwh: +(mw * 4).toFixed(1) };
+}
+
 async function jget<T>(path: string): Promise<T> {
   const r = await fetch(path, { cache: "no-store" });
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
