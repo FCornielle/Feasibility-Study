@@ -13,12 +13,11 @@ export const TABS: Tab[] = [
   { id: "transient", label: "Transient Stability" },
   { id: "voltage", label: "Voltage Stability" },
   { id: "frequency", label: "Frequency Stability" },
-  { id: "quasi", label: "Quasi-dinámicas (OC)" },
   { id: "report", label: "📋 Reporte de Interconexión" },
 ];
 
 // Orden de las secciones en el reporte consolidado.
-export const REPORT_ORDER = ["steady_state", "voltage", "small-signal", "transient", "frequency", "quasi"];
+export const REPORT_ORDER = ["steady_state", "voltage", "small-signal", "transient", "frequency"];
 
 // Horas / escenarios de operación P01..P24 (selector compartido).
 export const HOURS = Array.from({ length: 24 }, (_, i) => {
@@ -27,4 +26,4 @@ export const HOURS = Array.from({ length: 24 }, (_, i) => {
 });
 
 // Pestañas con resultado de serie x/traces (componente DynamicStudy genérico).
-export const DYNAMIC_TABS = ["small-signal", "transient", "quasi"];
+export const DYNAMIC_TABS = ["small-signal", "transient"];

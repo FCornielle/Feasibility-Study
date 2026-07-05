@@ -25,7 +25,7 @@ from sandbox import PFRunSandbox  # noqa: E402
 
 STUDY = "frequency"
 TRIP_T = 0.5          # disparo de la unidad a los 500 ms
-TSTOP, DT = 15.0, 0.01
+TSTOP, DT = 60.0, 0.02   # ventana completa de 60 s (dinámica de frecuencia lenta -> paso 0.02 s)
 N_SPEED_GENS = 6      # generadores síncronos cuya velocidad se grafica
 
 
