@@ -8,8 +8,16 @@ if (Test-Path $NODE) { $env:Path = "$NODE;$env:Path" }
 Write-Host "== 1/3  Export estático del frontend (DESKTOP=1) ==" -ForegroundColor Cyan
 Push-Location "$ROOT\frontend"
 $env:DESKTOP = "1"
-if (-not (Test-Path node_modules)) { npm install --no-fund --no-audit }
+# npm escribe avisos ("npm notice") a stderr; con ErrorActionPreference=Stop eso aborta el script
+# aunque el build sea EXITOSO. Se baja a Continue para los comandos npm y se valida por exit code.
+$ErrorActionPreference = "Continue"
+if (-not (Test-Path node_modules)) {
+  npm install --no-fund --no-audit
+  if ($LASTEXITCODE -ne 0) { throw "npm install falló (exit $LASTEXITCODE)." }
+}
 npm run build
+if ($LASTEXITCODE -ne 0) { throw "npm run build falló (exit $LASTEXITCODE)." }
+$ErrorActionPreference = "Stop"
 Pop-Location
 if (-not (Test-Path "$ROOT\frontend\out\index.html")) { throw "Falló el export estático (frontend\out)." }
 
