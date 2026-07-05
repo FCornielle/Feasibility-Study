@@ -1,7 +1,8 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess } from "@/lib/api";
+import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess, bessLabel } from "@/lib/api";
+import PvInput from "@/components/PvInput";
 import ComplianceTable from "@/components/ComplianceTable";
 import { SpeedChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
@@ -114,8 +115,8 @@ export default function TransientStudy() {
             <h3>Planta a interconectar</h3>
             <div className="selected">{selSub ? <>Subestación: <b>{selSub.display_name || selSub.name}</b></> : "Selecciona una subestación…"}</div>
             <div className="row">
-              <div><label>PV (MW)</label><input type="number" value={params.pv_mw} onChange={(e) => { const pv = +e.target.value; setParams({ ...params, pv_mw: pv, ...deriveBess(pv, "arbitrage") }); }} /></div>
-              <div><label>BESS de arbitraje</label><input type="text" readOnly value={`${deriveBess(params.pv_mw, "arbitrage").bess_mw} MW · ${deriveBess(params.pv_mw, "arbitrage").bess_mwh} MWh`} title="50% de la potencia PV, 4 h de energía" /></div>
+              <PvInput value={params.pv_mw} onChange={(pv) => setParams({ ...params, pv_mw: pv, ...deriveBess(pv, "arbitrage") })} />
+              <div><label>BESS de arbitraje</label><input type="text" readOnly value={bessLabel(params.pv_mw, "arbitrage")} title="50% de la potencia PV, 4 h de energía (sin BESS si < 20 MWn)" /></div>
             </div>
             <div className="row">
               <div><label>Hora del día</label>

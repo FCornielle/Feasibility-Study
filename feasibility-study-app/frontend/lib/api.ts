@@ -52,14 +52,23 @@ export interface RunRequest extends RunParams {
 // El BESS se DIMENSIONA a partir de la potencia PV y su rol (no se ingresa a mano):
 //   arbitrage: 50% de la PV y 4 h (todos los estudios salvo el de frecuencia).
 //   frequency: 10% de la PV (5% regulación primaria + 5% secundaria) — solo el estudio de frecuencia.
+export const PV_MAX_MW = 200;        // potencia máxima de planta PV admitida
+export const BESS_MIN_PV_MW = 20;    // < 20 MWn de PV no requiere almacenamiento
 export function deriveBess(pvMw: number, role: "arbitrage" | "frequency" = "arbitrage"): { bess_mw: number; bess_mwh: number } {
   const pv = Number.isFinite(pvMw) ? pvMw : 0;
+  if (pv < BESS_MIN_PV_MW) return { bess_mw: 0, bess_mwh: 0 };   // sin BESS
   if (role === "frequency") {
     const mw = +(0.10 * pv).toFixed(1);
     return { bess_mw: mw, bess_mwh: +(mw * 0.5).toFixed(1) };
   }
   const mw = +(0.50 * pv).toFixed(1);
   return { bess_mw: mw, bess_mwh: +(mw * 4).toFixed(1) };
+}
+
+// Texto del BESS derivado para la UI (o "Sin BESS" si la PV es < 20 MWn).
+export function bessLabel(pvMw: number, role: "arbitrage" | "frequency" = "arbitrage"): string {
+  const b = deriveBess(pvMw, role);
+  return b.bess_mw > 0 ? `${b.bess_mw} MW · ${b.bess_mwh} MWh` : "Sin BESS (PV < 20 MWn)";
 }
 
 async function jget<T>(path: string): Promise<T> {

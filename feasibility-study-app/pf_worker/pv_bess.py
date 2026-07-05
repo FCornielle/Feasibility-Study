@@ -38,10 +38,14 @@ ARBITRAGE_MW_FRAC = 0.50
 ARBITRAGE_HOURS = 4.0
 FREQREG_MW_FRAC = 0.10          # 5% primaria + 5% secundaria
 FREQREG_HOURS = 0.5            # duración corta para regulación de frecuencia (supuesto, ajustable)
+BESS_MIN_PV_MW = 20.0         # plantas PV < 20 MWn NO requieren sistema de almacenamiento
 
 
 def bess_sizing(pv_mw: float, role: str = "arbitrage") -> tuple[float, float]:
-    """Devuelve (bess_mw, bess_mwh) según el rol del BESS y la potencia de la planta PV."""
+    """Devuelve (bess_mw, bess_mwh) según el rol del BESS y la potencia de la planta PV.
+    Plantas PV de menos de 20 MWn no requieren almacenamiento -> (0, 0)."""
+    if pv_mw < BESS_MIN_PV_MW:
+        return 0.0, 0.0
     if role == "frequency":
         mw = round(FREQREG_MW_FRAC * pv_mw, 3)
         return mw, round(mw * FREQREG_HOURS, 3)

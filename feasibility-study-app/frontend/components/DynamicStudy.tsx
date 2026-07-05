@@ -3,8 +3,9 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import {
   createRun, getResult, getSubstations, watchRun,
-  RunJob, RunParams, Substation, deriveBess,
+  RunJob, RunParams, Substation, deriveBess, bessLabel,
 } from "@/lib/api";
+import PvInput from "@/components/PvInput";
 import ComplianceTable from "@/components/ComplianceTable";
 import { SeriesChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
@@ -88,10 +89,9 @@ export default function DynamicStudy({ study }: { study: string }) {
             {selSub ? <>Subestación: <b>{selSub.name}</b> · {selSub.voltages_kv.join("/")} kV</> : "Selecciona una subestación…"}
           </div>
           <div className="row">
-            <div><label>PV (MW)</label>
-              <input type="number" value={params.pv_mw} onChange={(e) => { const pv = +e.target.value; setParams({ ...params, pv_mw: pv, ...deriveBess(pv, bessRole) }); }} /></div>
+            <PvInput value={params.pv_mw} onChange={(pv) => setParams({ ...params, pv_mw: pv, ...deriveBess(pv, bessRole) })} />
             <div><label>{bessRole === "frequency" ? "BESS de frecuencia" : "BESS de arbitraje"}</label>
-              <input type="text" readOnly value={`${deriveBess(params.pv_mw, bessRole).bess_mw} MW · ${deriveBess(params.pv_mw, bessRole).bess_mwh} MWh`} title={bessRole === "frequency" ? "10% de la PV (regulación primaria + secundaria)" : "50% de la potencia PV, 4 h de energía"} /></div>
+              <input type="text" readOnly value={bessLabel(params.pv_mw, bessRole)} title={bessRole === "frequency" ? "10% de la PV (regulación primaria + secundaria)" : "50% de la potencia PV, 4 h de energía (sin BESS si < 20 MWn)"} /></div>
           </div>
           <div className="row">
             <div><label>Modo BESS</label>
