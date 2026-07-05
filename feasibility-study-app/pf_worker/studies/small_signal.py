@@ -29,14 +29,27 @@ FAULT_X_PU = 0.20                    # impedancia de falla (pu sobre Zbase del P
 PERTURBATION = "Falla trifásica de 80 ms en el PCC (perturbación para excitar los modos)"
 
 
-def _record(app, res, gens):
-    """Velocidad (pu) de cada generador tras la corrida RMS."""
+def _record_var(app, res, gens, var):
+    """Serie de `var` (p.ej. s:xspeed = velocidad, s:firel = ángulo del rotor) por generador."""
     out = {}
     for g in gens:
-        t, sp = dynamics.series(app, res, g, "s:xspeed")
-        if sp:
-            out[g.loc_name] = (t, sp)
+        t, y = dynamics.series(app, res, g, var)
+        if y:
+            out[g.loc_name] = (t, y)
     return out
+
+
+def _series_only(recorded):
+    """{x, traces} de una magnitud por generador (sin análisis modal), para graficarla tal cual."""
+    if not recorded:
+        return None
+    any_t = next(iter(recorded.values()))[0]
+    xs = dynamics.downsample(any_t, any_t)[0]
+    traces = []
+    for name, (t, y) in recorded.items():
+        _, yx = dynamics.downsample(t, y)
+        traces.append({"name": name, "y": yx})
+    return {"x_label": "t [s]", "x": xs, "traces": traces}
 
 
 def _analyze(speeds):
@@ -113,23 +126,28 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         dynamics.add_event(sb, app, "EvtShc", "fault", PULSE_T, target=pcc, i_shc=0, R_f=0.0, X_f=xf)
         dynamics.add_event(sb, app, "EvtShc", "clear", PULSE_T + PULSE_MS / 1000.0, target=pcc, i_shc=4)
 
+        mon = [(g, "s:xspeed") for g in dgens] + [(g, "s:firel") for g in dgens]  # velocidad + ángulo
+
         # SIN planta
         report("RMS sin planta (perturbación pequeña)", 30)
-        inc, sim, res = dynamics.rms_prepare(app, [(g, "s:xspeed") for g in dgens])
+        inc, sim, res = dynamics.rms_prepare(app, mon)
         dynamics.rms_run(app, inc, sim, tstop=TSTOP, dt=DT)
-        series_base, modes_base, crit_base, fcrit_base = _analyze(_record(app, res, dgens))
+        series_base, modes_base, crit_base, fcrit_base = _analyze(_record_var(app, res, dgens, "s:xspeed"))
+        angles_base = _series_only(_record_var(app, res, dgens, "s:firel"))
 
         # CON planta (despacho coherente con la hora)
         report("modelando PV+BESS", 55)
         pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode, hour=hour)
         app.GetFromStudyCase("ComLdf").Execute()
         report("RMS con planta", 70)
-        inc, sim, res = dynamics.rms_prepare(app, [(g, "s:xspeed") for g in dgens])
+        inc, sim, res = dynamics.rms_prepare(app, mon)
         dynamics.rms_run(app, inc, sim, tstop=TSTOP, dt=DT)
-        series_plant, modes_plant, crit_plant, fcrit_plant = _analyze(_record(app, res, dgens))
+        series_plant, modes_plant, crit_plant, fcrit_plant = _analyze(_record_var(app, res, dgens, "s:xspeed"))
+        angles_plant = _series_only(_record_var(app, res, dgens, "s:firel"))
 
     report("evaluando amortiguamiento", 92)
     data["speeds"] = {"sin_planta": series_base, "con_planta": series_plant}
+    data["angles"] = {"sin_planta": angles_base, "con_planta": angles_plant}   # ángulo del rotor (s:firel)
     data["modes"] = {"sin_planta": modes_base, "con_planta": modes_plant}
     data["damping_index"] = {"sin_planta": crit_base, "con_planta": crit_plant}
     data["crit_freq"] = {"sin_planta": fcrit_base, "con_planta": fcrit_plant}

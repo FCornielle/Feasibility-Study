@@ -174,7 +174,7 @@ export default function SmallSignalStudy() {
 
           {/* Sección B: perturbación pequeña — velocidad de los generadores distantes */}
           <div className="card">
-            <h3>Perturbación pequeña — velocidad de los generadores más distantes</h3>
+            <h3>Perturbación pequeña — velocidad y ángulo de los generadores más distantes</h3>
             <div className="selected" style={{ marginBottom: 10 }}>Perturbación: {result.perturbation}</div>
             <div className="grid2">
               <div>
@@ -184,6 +184,17 @@ export default function SmallSignalStudy() {
               <div>
                 <h4 style={{ margin: "0 0 4px", color: "var(--accent)" }}>✚ CON planta</h4>
                 <SpeedChart series={result.speeds?.con_planta} title="Velocidad de rotores" yLabel="ω [pu]" />
+              </div>
+            </div>
+            {/* Ángulo del rotor (s:firel) de los mismos generadores, debajo de la velocidad */}
+            <div className="grid2" style={{ marginTop: 12 }}>
+              <div>
+                <h4 style={{ margin: "0 0 4px", color: "var(--warn)" }}>● SIN planta</h4>
+                <SpeedChart series={result.angles?.sin_planta} title="Ángulo de rotores" yLabel="δ [°]" />
+              </div>
+              <div>
+                <h4 style={{ margin: "0 0 4px", color: "var(--accent)" }}>✚ CON planta</h4>
+                <SpeedChart series={result.angles?.con_planta} title="Ángulo de rotores" yLabel="δ [°]" />
               </div>
             </div>
             <p className="phase" style={{ marginTop: 8 }}>
