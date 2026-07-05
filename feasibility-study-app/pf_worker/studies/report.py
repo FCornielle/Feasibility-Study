@@ -14,7 +14,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from studies import frequency, quasi_dynamic, small_signal, steady_state, transient, voltage  # noqa: E402
+from studies import frequency, small_signal, steady_state, transient, voltage  # noqa: E402
 
 STUDY = "report"
 
@@ -25,7 +25,6 @@ SUBSTUDIES = [
     ("small-signal", "Estabilidad de pequeña señal (amortiguamiento)", small_signal.run),
     ("transient", "Estabilidad transitoria", transient.run),
     ("frequency", "Estabilidad de frecuencia", frequency.run),
-    ("quasi", "Quasi-dinámico 24 h (OC)", quasi_dynamic.run),
 ]
 
 

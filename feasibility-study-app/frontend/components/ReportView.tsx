@@ -1,6 +1,6 @@
 "use client";
 import ComplianceTable from "@/components/ComplianceTable";
-import { LoadingChart, SeriesChart, VoltageChart } from "@/components/Charts";
+import { LoadingChart, SeriesChart, SpeedChart, VoltageChart } from "@/components/Charts";
 import { REPORT_ORDER } from "@/lib/tabs";
 
 function KPIs({ obj }: { obj: Record<string, any> }) {
@@ -40,6 +40,21 @@ function StudySection({ label, study }: { label: string; study: any }) {
           )}
           {study.with_plant?.branches && <LoadingChart branches={study.with_plant.branches} />}
           {study.series && <SeriesChart series={study.series} />}
+          {/* Frecuencia: comparativa SIN vs CON planta (nueva estructura del estudio) */}
+          {study.frequency && (
+            <SpeedChart
+              series={{
+                x_label: "t [s]",
+                x: study.frequency.con_planta?.x ?? study.frequency.sin_planta?.x ?? [],
+                traces: [
+                  { name: "f SIN planta", y: study.frequency.sin_planta?.traces?.[0]?.y ?? [] },
+                  { name: "f CON planta", y: study.frequency.con_planta?.traces?.[0]?.y ?? [] },
+                ],
+              }}
+              title="Frecuencia SIN vs CON planta"
+              yLabel="f [Hz]"
+            />
+          )}
         </>
       )}
     </section>

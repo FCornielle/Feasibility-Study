@@ -1,12 +1,13 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation } from "@/lib/api";
+import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess, bessLabel } from "@/lib/api";
+import PvInput from "@/components/PvInput";
 import RunProgress from "@/components/RunProgress";
 import ReportView from "@/components/ReportView";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
-const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 20, bess_mwh: 80, bess_mode: "discharge" };
+const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 25, bess_mwh: 100, bess_mode: "discharge" };
 
 export default function ReportRunner() {
   const [subs, setSubs] = useState<Substation[]>([]);
@@ -68,21 +69,22 @@ export default function ReportRunner() {
             {selSub ? <>Subestación: <b>{selSub.name}</b> · {selSub.voltages_kv.join("/")} kV</> : "Selecciona una subestación…"}
           </div>
           <div className="row">
-            <div><label>PV (MW)</label><input type="number" value={params.pv_mw} onChange={(e) => setParams({ ...params, pv_mw: +e.target.value })} /></div>
-            <div><label>BESS (MW)</label><input type="number" value={params.bess_mw} onChange={(e) => setParams({ ...params, bess_mw: +e.target.value })} /></div>
+            <PvInput value={params.pv_mw} onChange={(pv) => setParams({ ...params, pv_mw: pv, ...deriveBess(pv, "arbitrage") })} />
+            <div><label>BESS (derivado de la PV)</label>
+              <input type="text" readOnly value={bessLabel(params.pv_mw, "arbitrage")} title="Arbitraje 50%/4 h; en el estudio de frecuencia se usa el BESS de regulación (10%). Sin BESS si < 20 MWn." /></div>
           </div>
           <div className="row">
-            <div><label>BESS (MWh)</label><input type="number" value={params.bess_mwh} onChange={(e) => setParams({ ...params, bess_mwh: +e.target.value })} /></div>
             <div><label>Modo BESS</label>
               <select value={params.bess_mode} onChange={(e) => setParams({ ...params, bess_mode: e.target.value as RunParams["bess_mode"] })}>
                 <option value="discharge">Descarga (punta)</option>
                 <option value="charge">Carga (mediodía)</option>
               </select></div>
+            <div />
           </div>
           <button className="run" disabled={!selected || running} onClick={launch}>
-            {running ? "Ejecutando todos los estudios…" : "Generar reporte (corre los 6 estudios)"}
+            {running ? "Ejecutando todos los estudios…" : "Generar reporte (corre los 5 estudios)"}
           </button>
-          <p className="phase" style={{ marginTop: 8 }}>Ejecuta steady + 4 dinámicos + quasi en serie (~varios minutos).</p>
+          <p className="phase" style={{ marginTop: 8 }}>Ejecuta steady + 4 dinámicos (tensión, pequeña señal, transitoria, frecuencia) en serie (~varios minutos).</p>
           {job && <RunProgress job={job} />}
           {err && <div className="err">{err}</div>}
           {job?.status === "error" && <div className="err">Error: {job.error}</div>}
