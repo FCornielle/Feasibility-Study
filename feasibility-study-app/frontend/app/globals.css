@@ -141,9 +141,10 @@ table.ctab td.over { background: rgba(231,76,60,.25); color: #ffb3ab; font-weigh
 .report-section h3 { color: var(--text); text-transform: none; font-size: 14px; }
 
 @media print {
-  .sidebar, .topbar, .print-btn { display: none !important; }
+  .sidebar, .topbar, .print-btn, .no-print, .nav-toggle, .run { display: none !important; }
   body, .app, .content, .scroll { height: auto; overflow: visible; background: #fff; color: #000; }
-  .card { border: 1px solid #ccc; background: #fff; break-inside: avoid; }
-  .report-section { break-inside: avoid; }
+  .card { border: 1px solid #ccc; background: #fff; break-inside: avoid; page-break-inside: avoid; }
+  .report-section, .grid2 > div { break-inside: avoid; page-break-inside: avoid; }
   .badge.pasa { color: #157347; } .badge.falla { color: #b02a37; }
+  h2, h3, h4 { color: #000 !important; }
 }
