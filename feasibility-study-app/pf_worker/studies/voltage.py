@@ -36,7 +36,8 @@ FAULT_T = 0.5               # inicio de la falla 1φ [s]
 CLEAR_MS = 250             # despeje (y re-cierre exitoso) de la falla [ms]
 PHASE_OPEN_MS = 150        # apertura de la fase fallada [ms]
 RECLOSE_MS = 600           # re-cierre exitoso (total desde la falla) [ms]
-R_FAULT = 2.0              # resistencia de falla [Ω] (cortocircuito monofásico, fase A)
+R_FAULT = 2.0              # (obsoleto) resistencia fija -> reemplazada por X_f escalado a la barra
+FAULT_X_PU = 0.20         # reactancia de falla como fracción de la Zbase del PCC -> hueco MODERADO (u~0.6-0.7)
 TSTOP_FAULT = 3.0         # ventana de la prueba de falla [s]
 CAP_MVAR = 5.0           # banco de capacitores maniobrado en el PCC [Mvar] (como el estudio de referencia)
 VAR_OPEN_T = 0.5          # se desconecta el capacitor [s]
@@ -127,9 +128,15 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         app.GetFromStudyCase("ComLdf").Execute()
 
         # Eventos (creados una vez; se "aparcan"/activan cambiando el tiempo según la prueba).
+        # Impedancia de falla ESCALADA a la barra (X_f = fracción de la Zbase del PCC): así el hueco es
+        # MODERADO (u ~ 0.6-0.7) en vez de colapsar la tensión en un bus fuerte de 138 kV. Con un hueco
+        # moderado la planta entrega reactivo SOSTENIDO durante el cortocircuito (Q = V·Iq con V no nula),
+        # en vez de Q≈0 durante el hueco profundo y un pico de recuperación al despejar.
+        zbase = (pcc.GetAttribute("uknom") ** 2) / 100.0     # ohm, base 100 MVA
+        x_fault = round(FAULT_X_PU * zbase, 3)
         fault_evt = dynamics.add_event(sb, app, "EvtShc", "fault_1ph", PARK_T, target=pcc, i_shc=SHC_1PH)
-        fault_evt.SetAttribute("R_f", R_FAULT)
-        fault_evt.SetAttribute("X_f", 0.0)
+        fault_evt.SetAttribute("R_f", 0.0)
+        fault_evt.SetAttribute("X_f", x_fault)
         clear_evt = dynamics.add_event(sb, app, "EvtShc", "clear", PARK_T, target=pcc, i_shc=4)
         open_evt = dynamics.add_event(sb, app, "EvtOutage", "cap_open", PARK_T, target=cap)
         close_evt = dynamics.add_event(sb, app, "EvtSwitch", "cap_close", PARK_T, target=cap)
@@ -242,10 +249,10 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         report("variación de tensión CON planta", 78)
         var_con = _capture_var(plant)
 
-        data["fault"] = {"clearing_ms": CLEAR_MS, "r_fault_ohm": R_FAULT,
+        data["fault"] = {"clearing_ms": CLEAR_MS, "x_fault_pu": FAULT_X_PU,
                          "phase_open_ms": PHASE_OPEN_MS, "reclose_ms": RECLOSE_MS,
                          "detail": [
-                             f"Cortocircuito monofásico (fase A) con {R_FAULT:.0f} Ω de resistencia de falla.",
+                             f"Cortocircuito monofásico (fase A) de hueco moderado (X_f = {FAULT_X_PU:.2f}·Zbase de la barra).",
                              f"Apertura de la fase fallada: {PHASE_OPEN_MS} ms.",
                              f"Despeje de la falla: {CLEAR_MS} ms desde la falla.",
                              "Tiempo de re-cierre: 300 ms.",
