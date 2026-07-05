@@ -28,8 +28,14 @@ if (-not (Test-Path "$ROOT\results\substations.json")) {
 
 Write-Host "== 3/3  Empaquetando con PyInstaller ==" -ForegroundColor Cyan
 Push-Location $ROOT
+# PyInstaller escribe sus logs INFO a stderr; con ErrorActionPreference=Stop eso aborta el script
+# aunque el empaquetado sea exitoso. Se baja a Continue y se valida por exit code (y la existencia del .exe).
+$ErrorActionPreference = "Continue"
 python -m PyInstaller --noconfirm "desktop\launch.spec"
+$pyExit = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
 Pop-Location
+if ($pyExit -ne 0) { throw "PyInstaller falló (exit $pyExit)." }
 
 $exe = "$ROOT\dist\InterconexionPVBESS\InterconexionPVBESS.exe"
 if (Test-Path $exe) { Write-Host "OK -> $exe" -ForegroundColor Green }
