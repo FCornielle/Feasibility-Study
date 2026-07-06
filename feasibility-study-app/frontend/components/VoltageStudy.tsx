@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess, bessLabel } from "@/lib/api";
 import PvInput from "@/components/PvInput";
+import ScaleLoadsInput from "@/components/ScaleLoadsInput";
 import ComplianceTable from "@/components/ComplianceTable";
 import { SpeedChart, DualAxisChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
@@ -99,16 +100,13 @@ export default function VoltageStudy() {
                 </select></div>
             </div>
             <div className="row">
-              <div><label>Factor de escala de demanda</label>
-                <input type="number" step="0.05" min="0.1" value={params.scale_loads ?? 1}
-                       onChange={(e) => setParams({ ...params, scale_loads: +e.target.value })} /></div>
-              <div />
+              <ScaleLoadsInput value={params.scale_loads ?? 1} onChange={(v) => setParams({ ...params, scale_loads: v })} />
             </div>
             <button className="run" disabled={!selected || running} onClick={launch}>
               {running ? "Ejecutando…" : "Ejecutar Voltage Stability"}
             </button>
             <p className="phase" style={{ marginTop: 8, color: "var(--warn)" }}>
-              ⚠ Estudio RMS con falla. Corre rápido (~30 s) en <b>horas nocturnas (P20–P05)</b>. En horas de
+              ⚠ Cálculo RMS con falla. Corre rápido en <b>horas nocturnas (P20–P05)</b>. En horas de
               alta generación solar el RMS faltado puede interrumpir el motor; usa una hora nocturna.
             </p>
             {job && <RunProgress job={job} />}

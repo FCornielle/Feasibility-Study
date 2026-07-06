@@ -33,11 +33,11 @@ def bess_factor(hour: int) -> float:
 #   arbitraje  (por defecto, todos los estudios salvo el de frecuencia):
 #              50% de la potencia PV y 4 h de energía  (ej.: PV 100 MW -> BESS 50 MW / 200 MWh).
 #   frecuencia (solo el estudio de regulación de frecuencia):
-#              10% de la potencia PV (5% regulación primaria + 5% secundaria).
+#              5% de la potencia PV (regulación primaria) y 1 h de energía.
 ARBITRAGE_MW_FRAC = 0.50
 ARBITRAGE_HOURS = 4.0
-FREQREG_MW_FRAC = 0.10          # 5% primaria + 5% secundaria
-FREQREG_HOURS = 0.5            # duración corta para regulación de frecuencia (supuesto, ajustable)
+FREQREG_MW_FRAC = 0.05          # 5% de la PV para regulación primaria de frecuencia
+FREQREG_HOURS = 1.0           # energía equivalente a 1 hora
 BESS_MIN_PV_MW = 20.0         # plantas PV < 20 MWn NO requieren sistema de almacenamiento
 
 

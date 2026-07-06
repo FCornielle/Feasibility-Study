@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess, bessLabel } from "@/lib/api";
 import PvInput from "@/components/PvInput";
+import ScaleLoadsInput from "@/components/ScaleLoadsInput";
 import ComplianceTable from "@/components/ComplianceTable";
 import { SpeedChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
@@ -97,7 +98,7 @@ export default function FrequencyStudy() {
             <div className="selected">{selSub ? <>Subestación: <b>{selSub.display_name || selSub.name}</b></> : "Selecciona una subestación…"}</div>
             <div className="row">
               <PvInput value={params.pv_mw} onChange={(pv) => setParams({ ...params, pv_mw: pv, ...deriveBess(pv, "frequency") })} />
-              <div><label>BESS de frecuencia</label><input type="text" readOnly value={bessLabel(params.pv_mw, "frequency")} title="10% de la PV (5% regulación primaria + 5% secundaria); sin BESS si < 20 MWn" /></div>
+              <div><label>BESS de regulación de frecuencia</label><input type="text" readOnly value={bessLabel(params.pv_mw, "frequency")} title="5% de la potencia PV (regulación primaria), 1 h de energía; sin BESS si < 20 MWn" /></div>
             </div>
             <div className="row">
               <div><label>Hora del día</label>
@@ -105,15 +106,16 @@ export default function FrequencyStudy() {
                   <option value="">Auto (escenario activo)</option>
                   {HOURS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
                 </select></div>
-              <div><label>Factor de escala de demanda</label>
-                <input type="number" step="0.05" min="0.1" value={params.scale_loads ?? 1}
-                       onChange={(e) => setParams({ ...params, scale_loads: +e.target.value })} /></div>
+              <div />
+            </div>
+            <div className="row">
+              <ScaleLoadsInput value={params.scale_loads ?? 1} onChange={(v) => setParams({ ...params, scale_loads: v })} />
             </div>
             <button className="run" disabled={!selected || running} onClick={launch}>
               {running ? "Ejecutando…" : "Ejecutar Frequency Stability"}
             </button>
             <p className="phase" style={{ marginTop: 8, color: "var(--warn)" }}>
-              ⚠ Estudio RMS (15 s). Se dispara a los 500 ms una unidad de generación de tamaño similar a la
+              ⚠ Cálculo RMS (60 s). Se dispara a los 500 ms una unidad de generación de tamaño similar a la
               planta y se compara la frecuencia SIN y CON la planta. Usa <b>horas nocturnas</b> para ver el
               aporte de la batería (regulación de frecuencia).
             </p>

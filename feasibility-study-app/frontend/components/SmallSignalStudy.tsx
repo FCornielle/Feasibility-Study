@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess, bessLabel } from "@/lib/api";
 import PvInput from "@/components/PvInput";
+import ScaleLoadsInput from "@/components/ScaleLoadsInput";
 import ComplianceTable from "@/components/ComplianceTable";
 import { EigenvalueChart, SpeedChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
@@ -115,19 +116,13 @@ export default function SmallSignalStudy() {
                 </select></div>
             </div>
             <div className="row">
-              <div><label>Factor de escala de demanda</label>
-                <input type="number" step="0.05" min="0.1" value={params.scale_loads ?? 1}
-                       onChange={(e) => setParams({ ...params, scale_loads: +e.target.value })} />
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <span className="phase">Escala todas las cargas (excepto auxiliares de plantas). 1.0 = sin cambio.</span>
-              </div>
+              <ScaleLoadsInput value={params.scale_loads ?? 1} onChange={(v) => setParams({ ...params, scale_loads: v })} />
             </div>
             <button className="run" disabled={!selected || running} onClick={launch}>
               {running ? "Ejecutando…" : "Ejecutar Small Signal"}
             </button>
             <p className="phase" style={{ marginTop: 8, color: "var(--warn)" }}>
-              ⚠ Corre 2 simulaciones RMS (sin y con planta). En <b>horas de alta generación solar</b>
+              ⚠ Cálculo RMS: 2 simulaciones (sin y con planta). En <b>horas de alta generación solar</b>
               (≈ P09–P17) el RMS es mucho más lento por los inversores (puede tardar varios minutos).
               Para pruebas rápidas usa horas nocturnas (P20–P05).
             </p>

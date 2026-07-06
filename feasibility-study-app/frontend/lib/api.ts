@@ -58,8 +58,8 @@ export function deriveBess(pvMw: number, role: "arbitrage" | "frequency" = "arbi
   const pv = Number.isFinite(pvMw) ? pvMw : 0;
   if (pv < BESS_MIN_PV_MW) return { bess_mw: 0, bess_mwh: 0 };   // sin BESS
   if (role === "frequency") {
-    const mw = +(0.10 * pv).toFixed(1);
-    return { bess_mw: mw, bess_mwh: +(mw * 0.5).toFixed(1) };
+    const mw = +(0.05 * pv).toFixed(1);        // 5% de la PV (regulación primaria)
+    return { bess_mw: mw, bess_mwh: +(mw * 1).toFixed(1) };   // 1 h de energía
   }
   const mw = +(0.50 * pv).toFixed(1);
   return { bess_mw: mw, bess_mwh: +(mw * 4).toFixed(1) };

@@ -3,17 +3,20 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createRun, getResult, getSubstations, watchRun, RunJob, RunParams, Substation, deriveBess, bessLabel } from "@/lib/api";
 import PvInput from "@/components/PvInput";
+import ScaleLoadsInput from "@/components/ScaleLoadsInput";
 import RunProgress from "@/components/RunProgress";
 import ReportView from "@/components/ReportView";
+import { HOURS } from "@/lib/tabs";
 
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
-const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 25, bess_mwh: 100, bess_mode: "discharge" };
+const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 25, bess_mwh: 100, bess_mode: "discharge", scale_loads: 1 };
 
 export default function ReportRunner() {
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [params, setParams] = useState<RunParams>(DEFAULT_PARAMS);
+  const [scenario, setScenario] = useState<string>("");
   const [job, setJob] = useState<RunJob | null>(null);
   const [result, setResult] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -30,7 +33,7 @@ export default function ReportRunner() {
     if (!selected) return;
     setErr(null); setResult(null);
     try {
-      const created = await createRun({ substation: selected, study: "report", ...params });
+      const created = await createRun({ substation: selected, study: "report", ...params, scenario: scenario || undefined });
       setJob(created);
       const close = watchRun(created.run_id, (j) => {
         setJob(j);
@@ -71,15 +74,18 @@ export default function ReportRunner() {
           <div className="row">
             <PvInput value={params.pv_mw} onChange={(pv) => setParams({ ...params, pv_mw: pv, ...deriveBess(pv, "arbitrage") })} />
             <div><label>BESS (derivado de la PV)</label>
-              <input type="text" readOnly value={bessLabel(params.pv_mw, "arbitrage")} title="Arbitraje 50%/4 h; en el estudio de frecuencia se usa el BESS de regulación (10%). Sin BESS si < 20 MWn." /></div>
+              <input type="text" readOnly value={bessLabel(params.pv_mw, "arbitrage")} title="Arbitraje 50%/4 h; en el estudio de frecuencia se usa el BESS de regulación (5%, 1 h). Sin BESS si < 20 MWn." /></div>
           </div>
           <div className="row">
-            <div><label>Modo BESS</label>
-              <select value={params.bess_mode} onChange={(e) => setParams({ ...params, bess_mode: e.target.value as RunParams["bess_mode"] })}>
-                <option value="discharge">Descarga (punta)</option>
-                <option value="charge">Carga (mediodía)</option>
+            <div><label>Hora del día (escenario)</label>
+              <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
+                <option value="">Auto (escenario activo)</option>
+                {HOURS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
               </select></div>
             <div />
+          </div>
+          <div className="row">
+            <ScaleLoadsInput value={params.scale_loads ?? 1} onChange={(v) => setParams({ ...params, scale_loads: v })} />
           </div>
           <button className="run" disabled={!selected || running} onClick={launch}>
             {running ? "Ejecutando todos los estudios…" : "Generar reporte (corre los 5 estudios)"}
