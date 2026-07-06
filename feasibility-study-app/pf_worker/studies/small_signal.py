@@ -24,9 +24,10 @@ STUDY = "small-signal"
 TSTOP, DT = 6.0, 0.01
 N_GENS = 7
 MIN_DAMPING = 3.0                    # % amortiguamiento mínimo aceptable (criterio estándar small-signal)
-PULSE_T, PULSE_MS = 0.5, 80          # falla en el PCC al inicio -> ventana post-falla larga (>5 s)
-FAULT_X_PU = 0.20                    # impedancia de falla (pu sobre Zbase del PCC): dip moderado, RMS converge
-PERTURBATION = "Falla trifásica de 80 ms en el PCC (perturbación para excitar los modos)"
+PULSE_T, PULSE_MS = 0.5, 200         # inicio del pulso y su duración (ms) -> ventana post-pulso larga
+PULSE_STEP_PCT = 0.20                # ±20% de una carga del sistema (pulso que excita los modos)
+PULSE_LOAD_MW = 50.0                 # se elige la carga en servicio más cercana a este tamaño
+PERTURBATION = "Pulso de ±20% de una carga del sistema (excita los modos electromecánicos, sin cambio neto de frecuencia)"
 
 
 def _record_var(app, res, gens, var):
@@ -117,14 +118,21 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         dgens = dynamics.distant_generators(app, pcc, n=N_GENS)
         data["distant_gens"] = [g.loc_name for g in dgens]
 
-        # Perturbación: falla trifásica breve en el PCC, pero CON impedancia de falla para que la
-        # tensión baje de forma moderada (no a 0). Una falla franca colapsa la tensión y satura los
-        # inversores -> el RMS diverge y la simulación se corta antes de tiempo (sin oscilación post-falla,
-        # sin modos). Con Xf ~ fracción de la Zbase del PCC el dip excita los modos y el RMS converge.
-        zbase = (pcc.GetAttribute("uknom") ** 2) / 100.0   # ohm, base 100 MVA
-        xf = round(FAULT_X_PU * zbase, 3)
-        dynamics.add_event(sb, app, "EvtShc", "fault", PULSE_T, target=pcc, i_shc=0, R_f=0.0, X_f=xf)
-        dynamics.add_event(sb, app, "EvtShc", "clear", PULSE_T + PULSE_MS / 1000.0, target=pcc, i_shc=4)
+        # Perturbación: PULSO de ±PULSE_STEP_PCT de una carga del sistema (como en el estudio de referencia:
+        # "pulso de modificación de la carga"). Se sube la carga en t=PULSE_T y se DEVUELVE a su valor en
+        # t=PULSE_T+PULSE_MS -> es un pulso SIN cambio neto, así excita los modos electromecánicos (oscilación
+        # de la velocidad de los rotores) sin desviar la frecuencia de forma sostenida. Los eventos se crean
+        # aquí, se usan en ambas corridas (SIN y CON planta) y el sandbox los borra al terminar (aislados).
+        pulse_load = min((l for l in app.GetCalcRelevantObjects("*.ElmLod") if l.GetAttribute("outserv") == 0),
+                         key=lambda l: abs((l.GetAttribute("plini") or 0.0) - PULSE_LOAD_MW), default=None)
+        if pulse_load is None:
+            raise RuntimeError("No hay cargas en servicio para aplicar el pulso de perturbación.")
+        p0 = pulse_load.GetAttribute("plini") or 0.0
+        dP_pct = round(PULSE_STEP_PCT * 100, 1)   # EvtLod.dP está en PORCENTAJE (verificado); relativo al P original
+        data["perturbation_load"] = {"name": pulse_load.loc_name, "mw": round(p0, 1),
+                                     "step_mw": round(PULSE_STEP_PCT * p0, 1), "step_pct": dP_pct}
+        dynamics.add_event(sb, app, "EvtLod", "pulse_up", PULSE_T, target=pulse_load, dP=dP_pct, iopt_type=0)
+        dynamics.add_event(sb, app, "EvtLod", "pulse_dn", PULSE_T + PULSE_MS / 1000.0, target=pulse_load, dP=-dP_pct, iopt_type=0)
 
         mon = [(g, "s:xspeed") for g in dgens] + [(g, "s:firel") for g in dgens]  # velocidad + ángulo
 

@@ -26,6 +26,7 @@ from sandbox import PFRunSandbox  # noqa: E402
 STUDY = "frequency"
 TRIP_T = 0.5          # disparo de la unidad a los 500 ms
 TSTOP, DT = 60.0, 0.02   # ventana completa de 60 s (dinámica de frecuencia lenta -> paso 0.02 s)
+BASELINE_TSTOP = 10.0    # ventana de la corrida base SIN eventos (frecuencia/velocidad en régimen)
 N_SPEED_GENS = 6      # generadores síncronos cuya velocidad se grafica
 
 
@@ -93,13 +94,11 @@ def run(app, sub_name, pv_mw, bess_mw=0.0, bess_mwh=0.0, bess_mode="discharge", 
         data["ref_gen"] = ref.loc_name
         data["monitored_gens"] = [g.loc_name for g in speed_gens]
 
-        # Evento de disparo (persiste para ambas corridas: SIN y CON planta).
-        dynamics.add_event(sb, app, "EvtOutage", "trip", TRIP_T, target=trip_unit)
         mon = [(ref, "s:xspeed")] + [(g, "s:xspeed") for g in speed_gens]
 
-        def _capture():
+        def _capture(tstop):
             inc, sim, res = dynamics.rms_prepare(app, mon)
-            dynamics.rms_run(app, inc, sim, tstop=TSTOP, dt=DT)
+            dynamics.rms_run(app, inc, sim, tstop=tstop, dt=DT)
             t, sp = dynamics.series(app, res, ref, "s:xspeed")
             freq = [s * dynamics.FN for s in sp]
             tx, fx = dynamics.downsample(t, freq)
@@ -117,9 +116,18 @@ def run(app, sub_name, pv_mw, bess_mw=0.0, bess_mwh=0.0, bess_mode="discharge", 
                 "rocof_hz_s": round(dynamics.max_rocof(t, freq), 3) if freq else None,
             }
 
+        # LÍNEA BASE (sin ningún evento): frecuencia y velocidad de los generadores en régimen, ANTES del
+        # disparo. Se corre antes de crear el evento (eventos aislados) para ver el estado estable.
+        report("RMS base (sin eventos)", 22)
+        base = _capture(BASELINE_TSTOP)
+        data["baseline"] = {"frequency": base["frequency"], "speeds": base["speeds"]}
+
+        # Evento de disparo (creado DESPUÉS de la línea base; persiste para SIN y CON planta; el sandbox lo borra).
+        dynamics.add_event(sb, app, "EvtOutage", "trip", TRIP_T, target=trip_unit)
+
         # SIN planta
         report("RMS sin planta (disparo de la unidad a 500 ms)", 35)
-        sin = _capture()
+        sin = _capture(TSTOP)
 
         # CON planta (despacho coherente con la hora del escenario)
         report("modelando PV+BESS", 55)
@@ -133,7 +141,7 @@ def run(app, sub_name, pv_mw, bess_mw=0.0, bess_mwh=0.0, bess_mode="discharge", 
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga con planta no convergió.")
         report("RMS con planta (disparo de la unidad a 500 ms)", 75)
-        con = _capture()
+        con = _capture(TSTOP)
 
     report("evaluando frecuencia", 92)
     data["frequency"] = {"sin_planta": sin["frequency"], "con_planta": con["frequency"]}

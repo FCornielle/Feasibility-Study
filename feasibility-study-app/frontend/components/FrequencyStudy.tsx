@@ -145,6 +145,26 @@ export default function FrequencyStudy() {
             </p>
           </div>
 
+          {result.baseline && (
+            <div className="card">
+              <h3>Frecuencia y velocidad en régimen (sin eventos)</h3>
+              <p className="phase" style={{ marginTop: -4, marginBottom: 10 }}>
+                Estado estable del sistema ANTES de cualquier evento: la frecuencia se mantiene cerca de 60 Hz y
+                las velocidades de los rotores cerca de 1 pu.
+              </p>
+              <div className="grid2">
+                <div>
+                  <h4 style={{ margin: "0 0 4px" }}>Frecuencia del sistema</h4>
+                  <SpeedChart series={result.baseline.frequency} title="Frecuencia (sin eventos)" yLabel="f [Hz]" />
+                </div>
+                <div>
+                  <h4 style={{ margin: "0 0 4px" }}>Velocidad de los generadores</h4>
+                  <SpeedChart series={result.baseline.speeds} title="Velocidad de rotores (sin eventos)" yLabel="ω [pu]" />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <h3>Frecuencia del sistema — SIN vs CON planta</h3>
             <SpeedChart series={freqCompare} title="Frecuencia del sistema" yLabel="f [Hz]" />
