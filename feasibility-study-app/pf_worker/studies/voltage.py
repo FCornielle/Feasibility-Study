@@ -113,18 +113,21 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         bus_labels = {b.GetFullName(): f"{disp.get(s, s)} · {round(b.GetAttribute('uknom'))} kV"
                       for b, d, s in all_buses}
 
-        # Banco de capacitores de CAP_MVAR en el PCC para la prueba de variación de tensión: se modela como
-        # una fuente reactiva conmutable de magnitud EXACTA (qlini < 0 = inyección capacitiva), porque el
-        # ElmShnt no permite fijar los Mvar de forma fiable por API. Conectado al inicio (inyecta +CAP_MVAR);
-        # se desconecta y reconecta para crear la variación de tensión.
+        # Banco de capacitores en el PCC para la prueba de variación de tensión: se modela como una fuente
+        # reactiva conmutable de magnitud EXACTA (qlini < 0 = inyección capacitiva), porque el ElmShnt no
+        # permite fijar los Mvar de forma fiable por API. Se DIMENSIONA a la MISMA cantidad de reactivo que
+        # puede ofrecer la planta (~su tamaño de BESS de arbitraje, o la PV si no lleva BESS): así la
+        # variación de tensión y la compensación reactiva de la planta son comparables (no un banco fijo).
+        cap_mvar = pv_bess.bess_sizing(pv_mw, "arbitrage")[0] or pv_mw
+        cap_mvar = round(max(cap_mvar, 1.0), 1)
         grid = pv_bess.grid_of(pcc)
         cub = sb.create(pcc, "StaCubic", "Cub_CAP")
         cap = sb.create(grid, "ElmLod", "CAP_VAR")
         cap.SetAttribute("bus1", cub)
         cap.SetAttribute("plini", 0.0)
-        cap.SetAttribute("qlini", -CAP_MVAR)     # (-) Mvar = inyecta reactivo (capacitor)
+        cap.SetAttribute("qlini", -cap_mvar)     # (-) Mvar = inyecta reactivo (capacitor)
         cap.SetAttribute("outserv", 0)
-        data["cap_mvar"] = CAP_MVAR
+        data["cap_mvar"] = cap_mvar
         app.GetFromStudyCase("ComLdf").Execute()
 
         # Eventos (creados una vez; se "aparcan"/activan cambiando el tiempo según la prueba).

@@ -39,6 +39,9 @@ ARBITRAGE_HOURS = 4.0
 FREQREG_MW_FRAC = 0.05          # 5% de la PV para regulación primaria de frecuencia
 FREQREG_HOURS = 1.0           # energía equivalente a 1 hora
 BESS_MIN_PV_MW = 20.0         # plantas PV < 20 MWn NO requieren sistema de almacenamiento
+RPC_KVI = 30.0               # ganancia integral de tensión del RPC clonado (de fábrica 10): con 30 el
+                             # reactivo VUELVE A CERO ~1 s tras despejar la falla (antes tardaba ~6 s),
+                             # manteniendo el aporte pleno durante el cortocircuito.
 
 
 def bess_sizing(pv_mw: float, role: str = "arbitrage") -> tuple[float, float]:
@@ -189,6 +192,19 @@ def attach_dynamic_model(sb, app, grid, pcc_term, cub, sgn, pgini, category, nam
     new_pelm = [(gen if e is ref_gen else (None if e is None else kids.get(e.loc_name)))
                 for e in ref_pelm]
     comp.SetAttribute("pelm", new_pelm)
+    # Afinar el control de reactivo (RPC): subir Kvi para que el reactivo VUELVA A CERO rápido al despejar
+    # la falla (con el valor de fábrica la cola de retorno era de ~6 s), sin perder el aporte durante el CC.
+    for k in comp.GetContents():
+        typ = k.GetAttribute("typ_id") if hasattr(k, "GetAttribute") else None
+        if typ is not None and getattr(typ, "loc_name", "") == "RPC":
+            try:
+                pars = list(k.GetAttribute("params"))     # [Kqp, Kqi, Kvp, Kvi]
+                if len(pars) >= 4:
+                    pars[3] = RPC_KVI
+                    k.SetAttribute("params", pars)
+            except Exception:
+                pass
+            break
     return gen, comp
 
 
