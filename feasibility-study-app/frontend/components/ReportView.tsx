@@ -1,7 +1,22 @@
 "use client";
+import dynamic from "next/dynamic";
 import ComplianceTable from "@/components/ComplianceTable";
 import { DualAxisChart, EigenvalueChart, LoadingChart, SeriesChart, SpeedChart, VoltageChart } from "@/components/Charts";
 import { REPORT_ORDER } from "@/lib/tabs";
+
+const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
+
+// Nombre por defecto del PDF: se fija en document.title antes de imprimir (el navegador lo usa como
+// nombre sugerido al "Guardar como PDF"); se restaura despues.
+function printReport(result: any) {
+  const p = result.params || {};
+  const date = new Date().toISOString().slice(0, 10);
+  const bess = p.bess_mw ? `BESS ${p.bess_mw}MW ${p.bess_mwh}MWh` : "sin BESS";
+  const prev = document.title;
+  document.title = `Reporte de interconexion - ${result.substation} - PV ${p.pv_mw}MWn - ${bess} - ${date}`;
+  window.print();
+  setTimeout(() => { document.title = prev; }, 1500);
+}
 
 function KPIs({ obj }: { obj: Record<string, any> }) {
   if (!obj) return null;
@@ -56,6 +71,11 @@ function StudyCharts({ studyKey, study }: { studyKey: string; study: any }) {
         {study.fault && (
           <>
             <h4 style={{ marginBottom: 6 }}>Falla monofásica con re-cierre exitoso</h4>
+            {(study.fault.detail ?? []).length > 0 && (
+              <ul className="phase" style={{ margin: "0 0 8px 18px" }}>
+                {study.fault.detail.map((d: string, i: number) => <li key={i}>{d}</li>)}
+              </ul>
+            )}
             <SinCon sin={study.fault.sin?.voltages} con={study.fault.con?.voltages} title="Tensión de las barras" yLabel="u [pu]" />
             {study.fault.con?.reactive?.traces?.length > 0 && (
               <div style={{ marginTop: 8 }}>
@@ -130,6 +150,21 @@ function StudyCharts({ studyKey, study }: { studyKey: string; study: any }) {
     } : null;
     return (
       <>
+        {study.trip_unit?.name && (
+          <p className="phase" style={{ margin: "0 0 8px" }}>
+            Disparo a los 500 ms de la unidad <b>{study.trip_unit.name}</b>
+            {study.trip_unit.mw ? ` (~${study.trip_unit.mw} MW, similar a la planta)` : ""}.
+          </p>
+        )}
+        {study.baseline && (
+          <div style={{ marginBottom: 8 }}>
+            <h4 style={{ margin: "0 0 4px" }}>Régimen (sin eventos)</h4>
+            <div className="grid2">
+              <div><SpeedChart series={study.baseline.frequency} title="Frecuencia (sin eventos)" yLabel="f [Hz]" /></div>
+              <div><SpeedChart series={study.baseline.speeds} title="Velocidad de rotores (sin eventos)" yLabel="ω [pu]" /></div>
+            </div>
+          </div>
+        )}
         {overlay && <SpeedChart series={overlay} title="Frecuencia del sistema — SIN vs CON planta" yLabel="f [Hz]" />}
         {study.speeds && (
           <div style={{ marginTop: 8 }}>
@@ -194,7 +229,7 @@ export default function ReportView({ result }: { result: any }) {
             <span className={`badge ${result.overall === "PASA" ? "pasa" : "falla"}`} style={{ fontSize: 14 }}>
               {result.overall}
             </span>
-            <div><button className="print-btn no-print" onClick={() => window.print()}>Imprimir / PDF</button></div>
+            <div><button className="print-btn no-print" onClick={() => printReport(result)}>Imprimir / PDF</button></div>
           </div>
         </div>
       </div>
@@ -220,6 +255,12 @@ export default function ReportView({ result }: { result: any }) {
           comportamiento estático, estabilidad de tensión, pequeña señal, transitoria y de frecuencia, cada uno
           comparando el sistema SIN y CON la nueva planta PV+BESS.
         </p>
+      </div>
+
+      <div className="card">
+        <h3>Ubicación y red — subestación {result.substation}
+          {result.pcc && <> · PCC {result.pcc.name} ({result.pcc.kv} kV)</>}</h3>
+        <div style={{ height: 380 }}><GridMap selected={result.substation} onSelect={() => {}} /></div>
       </div>
 
       {REPORT_ORDER.map((k) =>
