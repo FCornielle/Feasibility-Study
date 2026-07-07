@@ -26,6 +26,13 @@ for _p in (APP_ROOT, PF_WORKER, BACKEND):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# Bandera de parada ordenada (misma ruta que usa el worker): al cerrar la app se crea; el worker sale
+# limpio ENTRE trabajos (nunca a mitad de un RMS) y libera la licencia sin corromper el proyecto.
+import paths  # noqa: E402
+STOP_FLAG = os.path.join(paths.RESULTS_DIR, ".worker_stop")
+WORKER_STOP_TIMEOUT = 1800  # s (30 min): cubre el estudio más largo (el reporte de los 5) para que el
+                            # worker termine y salga solo; el force-kill solo dispara si el motor se colgó.
+
 PORT = int(os.environ.get("APP_PORT", "8000"))
 
 
@@ -246,8 +253,7 @@ def role_shell():
     if not splash_wait(port):
         _error("El servidor interno no respondió a tiempo.\n"
                "Revisa que PowerFactory esté disponible y la licencia libre, y reintenta.")
-        procs["stop"] = True
-        _kill_tree(procs["worker"]); _kill_tree(backend_proc)
+        _shutdown(procs, backend_proc)
         return
 
     import webview
@@ -260,16 +266,12 @@ def role_shell():
     try:
         webview.start()
     finally:
-        procs["stop"] = True
-        _kill_tree(procs["worker"]); _kill_tree(backend_proc)
+        _shutdown(procs, backend_proc)
 
 
 def _kill_tree(proc):
-    """Mata el proceso y TODO su árbol (Windows: taskkill /F /T). Necesario para que el worker de
-    PowerFactory —y el motor del engine que corre en su proceso— mueran de verdad y LIBEREN LA LICENCIA
-    al cerrar la app (con proc.terminate() a veces queda el python del worker colgado reteniendo la
-    licencia). Idle -> cierre limpio; si se cierra a mitad de un RMS puede corromper el proyecto (reimportar
-    el .pfd de la carpeta del proyecto)."""
+    """Mata el proceso y TODO su árbol (Windows: taskkill /F /T). Último recurso: solo se usa con el
+    worker si NO salió solo tras la parada ordenada (un force-kill a mitad de un RMS corrompe el proyecto)."""
     if proc is None:
         return
     try:
@@ -280,6 +282,34 @@ def _kill_tree(proc):
             proc.kill()
         except Exception:
             pass
+
+
+def _shutdown(procs, backend_proc):
+    """Cierre SEGURO al salir de la app:
+    1) Marca stop (el watchdog no reinicia el worker).
+    2) Crea la bandera de parada -> el worker termina su estudio ACTUAL y sale limpio ENTRE trabajos
+       (si está ocioso sale al instante), liberando la licencia SIN corromper el proyecto.
+    3) Espera a que el worker salga solo (hasta WORKER_STOP_TIMEOUT). Solo si no sale (RMS colgado) se
+       fuerza el kill del árbol como último recurso.
+    4) El backend (sin motor PF) se puede matar de una."""
+    procs["stop"] = True
+    try:
+        with open(STOP_FLAG, "w") as fh:
+            fh.write("stop")
+    except Exception:
+        pass
+    w = procs.get("worker")
+    if w is not None:
+        try:
+            w.wait(timeout=WORKER_STOP_TIMEOUT)   # deja que termine el estudio actual y salga limpio
+        except Exception:
+            _kill_tree(w)                          # último recurso (RMS colgado): puede corromper
+    _kill_tree(backend_proc)
+    try:
+        if os.path.exists(STOP_FLAG):
+            os.remove(STOP_FLAG)
+    except Exception:
+        pass
 
 
 def _error(msg: str):

@@ -30,6 +30,10 @@ from studies import (  # noqa: E402
 )
 
 RESULTS_DIR = paths.RESULTS_DIR
+# Bandera de parada ORDENADA: la app la crea al cerrar; el worker la ve ENTRE trabajos (nunca a mitad de
+# un RMS) y sale limpio -> el motor de PowerFactory se libera sin corromper el proyecto. (Cerrar a mitad
+# de un RMS con un force-kill es lo que corrompe la base del proyecto.)
+STOP_FLAG = os.path.join(RESULTS_DIR, ".worker_stop")
 
 # Registro de estudios disponibles (clave = id que envía el frontend).
 STUDIES = {
@@ -104,8 +108,23 @@ def main():
                          error=("La corrida anterior interrumpió el motor de PowerFactory (escenario muy "
                                 "pesado para el RMS con falla). Reintenta con una hora nocturna (P20–P05)."))
             print(f"Job huérfano {j['run_id']} marcado como error.", flush=True)
+    # Al arrancar, limpia una bandera de parada vieja (de un cierre anterior) para no salir de inmediato.
+    try:
+        if os.path.exists(STOP_FLAG):
+            os.remove(STOP_FLAG)
+    except Exception:
+        pass
     print(f"Worker listo (once={once}). Esperando trabajos en {store.dir}")
     while True:
+        # Parada ordenada: solo se comprueba ENTRE trabajos (aquí el motor está en reposo, no a mitad de
+        # un RMS), así el proceso puede salir limpio sin corromper el proyecto.
+        if os.path.exists(STOP_FLAG):
+            print("Bandera de parada detectada: cerrando el worker de forma ordenada.", flush=True)
+            try:
+                os.remove(STOP_FLAG)
+            except Exception:
+                pass
+            break
         try:
             did = process_one(app, store)
         except Exception as e:  # nunca tumbar el worker: un fallo aislado dejaría la cola atascada

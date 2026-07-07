@@ -28,3 +28,15 @@ export const getCommon = (): CommonParams => ({ ...common });
 export const saveCommon = (v: CommonParams): void => {
   common = { ...common, ...v };
 };
+
+// Cronómetro por corrida (persiste al cambiar de pestaña, para que el conteo NO se reinicie al volver).
+const runTimes: Record<string, { t0: number; t1: number | null }> = {};
+export const runStart = (id: string): number => {
+  if (!runTimes[id]) runTimes[id] = { t0: Date.now(), t1: null };
+  return runTimes[id].t0;
+};
+export const runEnd = (id: string, ended: boolean): number | null => {
+  const r = runTimes[id] ?? (runTimes[id] = { t0: Date.now(), t1: null });
+  if (ended && r.t1 == null) r.t1 = Date.now();
+  return r.t1;
+};
