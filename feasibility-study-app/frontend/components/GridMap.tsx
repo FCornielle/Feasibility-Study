@@ -32,14 +32,38 @@ function heatColor(u: number): string {
   return `rgb(${lerp(243, 231, k)},${lerp(156, 76, k)},${lerp(18, 60, k)})`;        // naranja→rojo
 }
 
+// Heatmap de VARIACIÓN (ángulo/velocidad/tensión durante el evento): mínimo → máximo.
+// VERDE (poca variación) → AMARILLO → ROJO (mayor variación). Escala de máx a mín como el steady state.
+function varColor(t: number): string {
+  const lerp = (a: number, b: number, k: number) => Math.round(a + (b - a) * k);
+  const cl = (x: number) => Math.max(0, Math.min(1, x));
+  t = cl(t);
+  if (t < 0.5) {
+    const k = t / 0.5;                                     // verde → amarillo
+    return `rgb(${lerp(46, 243, k)},${lerp(204, 200, k)},${lerp(113, 18, k)})`;
+  }
+  const k = (t - 0.5) / 0.5;                               // amarillo → rojo
+  return `rgb(${lerp(243, 231, k)},${lerp(200, 76, k)},${lerp(18, 60, k)})`;
+}
+
+export interface VariationMap {
+  values: Record<string, number>;
+  min: number | null;
+  max: number | null;
+  label?: string;
+  unit?: string;
+}
+
 export default function GridMap({
   selected,
   onSelect,
   voltages,
+  variation,
 }: {
   selected: string | null;
   onSelect: (name: string) => void;
   voltages?: Record<string, number> | null;
+  variation?: VariationMap | null;
 }) {
   const [feats, setFeats] = useState<GridFeature[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -51,6 +75,9 @@ export default function GridMap({
   const subs = feats.filter((f) => f.properties.kind === "substation");
   const lines = feats.filter((f) => f.properties.kind === "line");
   const heat = !!voltages && Object.keys(voltages).length > 0;
+  const vmap = !heat && !!variation && Object.keys(variation.values || {}).length > 0 ? variation : null;
+  const vmin = vmap?.min ?? 0;
+  const vspan = vmap && vmap.max != null && vmap.min != null && vmap.max > vmap.min ? vmap.max - vmap.min : 1;
 
   if (err) return <div className="err">No se pudo cargar el mapa: {err}</div>;
 
@@ -72,17 +99,21 @@ export default function GridMap({
           const [lon, lat] = f.geometry.coordinates as number[];
           const isSel = f.properties.name === selected;
           const u = heat ? voltages![f.properties.name] : undefined;
-          const color = u != null ? heatColor(u) : levelColor(f.properties.voltages_kv);
+          const vv = vmap ? vmap.values[f.properties.name] : undefined;
+          const color = u != null ? heatColor(u)
+            : vv != null ? varColor((vv - vmin) / vspan)
+            : levelColor(f.properties.voltages_kv);
+          const active = u != null || vv != null;
           const label = f.properties.display_name || f.properties.name;
           return (
             <CircleMarker
               key={`s${i}`}
               center={[lat, lon]}
-              radius={isSel ? 9 : heat ? 6 : 5}
+              radius={isSel ? 9 : active ? 6 : 5}
               pathOptions={{
                 color: isSel ? "#fff" : color,
                 fillColor: color,
-                fillOpacity: u != null ? 0.95 : 0.85,
+                fillOpacity: active ? 0.95 : 0.85,
                 weight: isSel ? 3 : 1,
               }}
               eventHandlers={{ click: () => onSelect(f.properties.name) }}
@@ -90,6 +121,7 @@ export default function GridMap({
               <Tooltip>
                 {label} · {(f.properties.voltages_kv || []).join("/")} kV
                 {u != null && <> · {u.toFixed(3)} pu</>}
+                {vv != null && <> · {vv.toFixed(4)} {vmap?.unit || ""}</>}
               </Tooltip>
             </CircleMarker>
           );
@@ -100,6 +132,13 @@ export default function GridMap({
           <span>0.93</span>
           <i style={{ background: "linear-gradient(90deg,#2e86ff,#f0f0f0 50%,#f39c12 78%,#e74c3c)" }} />
           <span>1.07 pu</span>
+        </div>
+      )}
+      {vmap && (
+        <div className="legend">
+          <span>{vmap.label || "variación"}: {vmap.min?.toFixed?.(3) ?? vmap.min}</span>
+          <i style={{ background: "linear-gradient(90deg,#2ecc71,#f3c812 50%,#e74c3c)" }} />
+          <span>{vmap.max?.toFixed?.(3) ?? vmap.max} {vmap.unit || ""}</span>
         </div>
       )}
     </div>

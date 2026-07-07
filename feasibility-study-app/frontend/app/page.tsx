@@ -50,6 +50,11 @@ export default function Page() {
               ☀️ <b>Estudio de Recurso</b> — pendiente de definir la fuente de datos del recurso solar
               (irradiancia / estación meteorológica). Es un estudio distinto al de interconexión.
             </div>
+          ) : tab === "quasi" ? (
+            <div className="stub-msg">
+              🕐 <b>Quasi-Dinámico</b> — barrido horario (24 h) del despacho/demanda del OC contra el
+              modelo. Pendiente de integrar el cliente del OC. Pestaña en construcción.
+            </div>
           ) : (
             <div className="stub-msg">🚧 {current.label} — en construcción.</div>
           )}

@@ -12,3 +12,19 @@ const store: Record<string, RunCache> = {};
 
 export const getRun = (key: string): RunCache => store[key] ?? {};
 export const saveRun = (key: string, v: RunCache): void => { store[key] = { ...store[key], ...v }; };
+
+// Parámetros COMPARTIDOS entre pestañas: la subestación, la potencia PV, la hora/escenario y el factor
+// de escala asignados en cualquier pestaña se usan como valores por defecto en las demás (ítem 4). El
+// BESS lo deriva cada pestaña de la PV según su rol (arbitraje / frecuencia).
+export interface CommonParams {
+  selected?: string | null;
+  scenario?: string;
+  pv_mw?: number;
+  scale_loads?: number;
+}
+
+let common: CommonParams = {};
+export const getCommon = (): CommonParams => ({ ...common });
+export const saveCommon = (v: CommonParams): void => {
+  common = { ...common, ...v };
+};

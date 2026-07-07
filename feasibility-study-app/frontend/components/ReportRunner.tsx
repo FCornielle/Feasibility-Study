@@ -7,21 +7,46 @@ import ScaleLoadsInput from "@/components/ScaleLoadsInput";
 import RunProgress from "@/components/RunProgress";
 import ReportView from "@/components/ReportView";
 import { HOURS } from "@/lib/tabs";
+import { getRun, saveRun, getCommon, saveCommon } from "@/lib/runStore";
 
+const CACHE_KEY = "report";
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
 const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 25, bess_mwh: 100, bess_mode: "discharge", scale_loads: 1 };
 
 export default function ReportRunner() {
+  const cached = getRun(CACHE_KEY);
+  const common = getCommon();
+  const initPv = common.pv_mw ?? cached.params?.pv_mw ?? DEFAULT_PARAMS.pv_mw;
+  const initScale = common.scale_loads ?? cached.params?.scale_loads ?? DEFAULT_PARAMS.scale_loads;
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [params, setParams] = useState<RunParams>(DEFAULT_PARAMS);
-  const [scenario, setScenario] = useState<string>("");
-  const [job, setJob] = useState<RunJob | null>(null);
-  const [result, setResult] = useState<any | null>(null);
+  const [selected, setSelected] = useState<string | null>(common.selected ?? cached.selected ?? null);
+  const [params, setParams] = useState<RunParams>({
+    ...(cached.params ?? DEFAULT_PARAMS), pv_mw: initPv, scale_loads: initScale, ...deriveBess(initPv, "arbitrage"),
+  });
+  const [scenario, setScenario] = useState<string>(common.scenario ?? cached.scenario ?? "");
+  const [job, setJob] = useState<RunJob | null>(cached.job ?? null);
+  const [result, setResult] = useState<any | null>(cached.result ?? null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
+  // Persiste la corrida (y la selección) al cambiar de pestaña: la corrida NO se pierde ni se detiene (punto 11).
+  useEffect(() => { saveRun(CACHE_KEY, { selected, scenario, params, job, result }); },
+    [selected, scenario, params, job, result]);
+  useEffect(() => { saveCommon({ selected, scenario, pv_mw: params.pv_mw, scale_loads: params.scale_loads }); },
+    [selected, scenario, params.pv_mw, params.scale_loads]);
+  // Al volver a la pestaña con una corrida en curso, re-engancha el watcher para que termine de actualizar.
+  useEffect(() => {
+    if (job && (job.status === "queued" || job.status === "running")) {
+      const close = watchRun(job.run_id, (j) => {
+        setJob(j);
+        if (j.status === "done") { getResult(j.run_id).then(setResult).catch(() => {}); close(); }
+        if (j.status === "error") close();
+      });
+      return close;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const selSub = subs.find((s) => s.name === selected) || null;
   const matches = useMemo(
     () => (query ? subs.filter((s) => s.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8) : []),

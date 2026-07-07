@@ -31,6 +31,8 @@ export function SystemPanel({ base, plant, scenario, plantDispatch }:
         <Item l="Pérdidas" v={p.losses_mw} u="MW" d={b ? p.losses_mw - b.losses_mw : undefined} />
         <Item l="Q demanda" v={p.demand_mvar} u="Mvar" />
         <Item l="Q generación" v={p.generation_mvar} u="Mvar" d={b ? p.generation_mvar - b.generation_mvar : undefined} />
+        {p.plant_pv_mvar != null && <Item l="Q PV (planta)" v={p.plant_pv_mvar} u="Mvar" />}
+        {p.plant_bess_mvar != null && <Item l="Q BESS (planta)" v={p.plant_bess_mvar} u="Mvar" />}
       </div>
       <p className="phase" style={{ marginTop: 10 }}>
         Metodología: flujo de carga IEC en el escenario horario del OC, comparación <b>con vs sin planta</b>

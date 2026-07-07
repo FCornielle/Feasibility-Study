@@ -113,6 +113,23 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
         bus_labels = {b.GetFullName(): f"{disp.get(s, s)} · {round(b.GetAttribute('uknom'))} kV"
                       for b, d, s in all_buses}
 
+        # Mapa (punto 9): una barra representativa por subestación (>=69 kV energizada) para la variación
+        # de tensión durante la falla -> heatmap por subestación (verde = poca, rojo = mucha variación).
+        _best = {}
+        for _t in app.GetCalcRelevantObjects("*.ElmTerm"):
+            if _t.GetAttribute("outserv") != 0:
+                continue
+            _kv = _t.GetAttribute("uknom") or 0.0
+            if _kv < 69.0:
+                continue
+            _subst = _t.GetAttribute("cpSubstat")
+            if _subst is None:
+                continue
+            _cur = _best.get(_subst.loc_name)
+            if _cur is None or _kv > _cur[0]:
+                _best[_subst.loc_name] = (_kv, _t)
+        map_terms = [t for _, t in _best.values()]
+
         # Banco de capacitores en el PCC para la prueba de variación de tensión: se modela como una fuente
         # reactiva conmutable de magnitud EXACTA (qlini < 0 = inyección capacitiva), porque el ElmShnt no
         # permite fijar los Mvar de forma fiable por API. Se DIMENSIONA a la MISMA cantidad de reactivo que
@@ -177,11 +194,24 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                 traces.append({"name": f"{nm} [Mvar]", "y": yx})
             return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
 
+        def _p_series(res):
+            """Potencia ACTIVA de las unidades despachadas de la planta [MW] durante la falla (punto 2:
+            respuesta activa del BESS en el cortocircuito — ver si cae por prioridad a la corriente reactiva)."""
+            x0, traces = None, []
+            for obj, nm in q_sources:
+                tt, yy = dynamics.series(app, res, obj, "m:P:bus1")
+                if not yy:
+                    continue
+                tx, yx = dynamics.downsample(tt, yy)
+                x0 = tx
+                traces.append({"name": f"{nm} [MW]", "y": yx})
+            return {"x_label": "t [s]", "x": x0 or [], "traces": traces}
+
         def _park_all():
             for e in (fault_evt, clear_evt, open_evt, close_evt):
                 e.SetAttribute("time", PARK_T)
 
-        def _capture_fault(plant=None):
+        def _capture_fault(plant=None, map_it=False):
             """§9.3.1 — falla 1φ en el PCC, despeje/re-cierre a los CLEAR_MS; tensiones (+ reactivos)."""
             _park_all()
             fault_evt.SetAttribute("time", FAULT_T)
@@ -189,11 +219,17 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             mon = [(t, "m:u") for t in monitor_buses]
             if plant:
                 mon += [(o, "m:Q:bus1") for o, _ in q_sources]
+                mon += [(o, "m:P:bus1") for o, _ in q_sources]   # activa de la planta (punto 2)
+            if map_it:
+                mon += [(t, "m:u") for t in map_terms]
             inc, sim, res = dynamics.rms_prepare(app, mon)
             dynamics.rms_run(app, inc, sim, tstop=TSTOP_FAULT, dt=DT)
             out = {"voltages": _ser(res, monitor_buses, "m:u", bus_labels)}
             if plant:
                 out["reactive"] = _q_series(res)
+                out["active"] = _p_series(res)     # respuesta activa de la planta durante la falla (punto 2)
+            if map_it:
+                out["variation"] = dynamics.substation_variation(app, res, map_terms, "m:u")
             return out
 
         def _capture_var(plant=None):
@@ -248,9 +284,12 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
                             "dynamic": plant.get("dynamic", False)}
 
         report("falla 1φ CON planta", 55)
-        fault_con = _capture_fault(plant)
+        fault_con = _capture_fault(plant, map_it=True)
         report("variación de tensión CON planta", 78)
         var_con = _capture_var(plant)
+        # Mapa (punto 9): variación máx de tensión por subestación durante la falla, CON planta.
+        data["substation_variation"] = dynamics.pack_variation(
+            fault_con.get("variation") or {}, "Máx variación de tensión", "pu")
 
         data["fault"] = {"clearing_ms": CLEAR_MS, "x_fault_pu": FAULT_X_PU,
                          "phase_open_ms": PHASE_OPEN_MS, "reclose_ms": RECLOSE_MS,

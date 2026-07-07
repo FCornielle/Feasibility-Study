@@ -217,7 +217,9 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             return {"voltages": _ser(res, monitor_buses, "m:u", labels=bus_labels),
                     "angles": _ser(res, mach, "s:firel", scale=1.0 / 180.0, ref=slack),
                     "speeds": _ser(res, mach, "s:xspeed"),
-                    "machines": [g.loc_name for g in mach]}
+                    "machines": [g.loc_name for g in mach],
+                    # Mapa (punto 9): variación máx del ángulo del rotor por subestación durante la falla.
+                    "variation": dynamics.substation_variation(app, res, all_gens, "s:firel")}
 
         def _cct_and_graphs(bus):
             """CCT (último despeje sin que NINGÚN generador pierda el paso) + gráficos a 5 s a ESE
@@ -265,6 +267,9 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
             report(f"CCT/gráficos con planta ({k + 1}/{len(fault_points)})",
                    40 + int(52 * (k + 1) / len(fault_points)))
         data["cases"] = cases
+        # Mapa (punto 9): variación de ángulo por subestación de la primera falla (la más local) CON planta.
+        first_var = (cases[0]["con"].get("variation") if cases and cases[0].get("con") else None) or {}
+        data["substation_variation"] = dynamics.pack_variation(first_var, "Máx variación de ángulo del rotor", "°")
 
         rows = []
         for bus, deg, sname in fault_points:

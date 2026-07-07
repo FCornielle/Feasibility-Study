@@ -13,6 +13,7 @@ export const TABS: Tab[] = [
   { id: "transient", label: "Transient Stability" },
   { id: "voltage", label: "Voltage Stability" },
   { id: "frequency", label: "Frequency Stability" },
+  { id: "quasi", label: "Quasi-Dinámico", stub: true },
   { id: "report", label: "📋 Reporte de Interconexión" },
 ];
 

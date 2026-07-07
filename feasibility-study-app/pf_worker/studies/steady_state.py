@@ -536,10 +536,38 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
         plant = pv_bess.build_pv_bess(sb, app, pcc, pv_mw, bess_mw, bess_mwh, bess_mode, hour=hour)
         data["plant_dispatch"] = {"pv_out_mw": plant["params"]["pv_out_mw"],
                                   "bess_out_mw": plant["params"]["bess_out_mw"], "hour": hour}
+        # Reactivo de la planta en el flujo de carga (punto 1): los parques PV/BESS aportan reactivo a un
+        # factor de potencia de despacho (capacidad ±0.95 pf del código de conexión) para que el balance del
+        # sistema muestre Q de PV y BESS reales. Se fija por qgini = P·tan(acos(pf)) (constq), que converge
+        # de forma robusta (el control de tensión pleno no converge en este punto de operación); el reactivo
+        # dinámico FRT lo gobierna el modelo RMS en los estudios de tensión/transitorio.
+        import math as _math
+        _pf = 0.95
+        for _u in (plant.get("pv"), plant.get("bess")):
+            if _u is None or _attr(_u, "outserv", 1) != 0:
+                continue
+            try:
+                _p = _attr(_u, "pgini", 0.0) or 0.0
+                if _p > 0.05:   # solo unidades que inyectan (descargando/generando); cargar no aporta Q
+                    _u.SetAttribute("qgini", round(_p * _math.tan(_math.acos(_pf)), 3))
+            except Exception:
+                pass
         if _run_ldf(app) != 0:
             raise RuntimeError("El flujo de carga con planta no convergió.")
         data["with_plant"] = _capture(app)
         data["with_plant"]["system"] = _system_totals(app)
+
+        # Reactivo (y activo) que aporta cada tramo de la planta al balance (punto 1: Q de PV y BESS).
+        def _pq(u):
+            if u is None:
+                return None
+            return {"p_mw": round(_attr(u, "m:P:bus1", 0.0) or 0.0, 2),
+                    "q_mvar": round(_attr(u, "m:Q:bus1", 0.0) or 0.0, 2)}
+        pv_pq, bess_pq = _pq(plant.get("pv")), _pq(plant.get("bess"))
+        data["plant_dispatch"]["pv_q_mvar"] = pv_pq["q_mvar"] if pv_pq else 0.0
+        data["plant_dispatch"]["bess_q_mvar"] = bess_pq["q_mvar"] if bess_pq else 0.0
+        data["with_plant"]["system"]["plant_pv_mvar"] = pv_pq["q_mvar"] if pv_pq else 0.0
+        data["with_plant"]["system"]["plant_bess_mvar"] = bess_pq["q_mvar"] if bess_pq else 0.0
         data["substation_voltages"] = _substation_voltages(app)      # con planta -> heatmap
         data["substation_voltages_base"] = sv_base
         data["dispatch"] = _dispatch(app)

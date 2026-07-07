@@ -8,7 +8,7 @@ import ComplianceTable from "@/components/ComplianceTable";
 import { EigenvalueChart, SpeedChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
 import { HOURS } from "@/lib/tabs";
-import { getRun, saveRun } from "@/lib/runStore";
+import { getRun, saveRun, getCommon, saveCommon } from "@/lib/runStore";
 
 const CACHE_KEY = "small-signal";
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
@@ -35,11 +35,16 @@ function ModesTable({ modes }: { modes: any[] }) {
 
 export default function SmallSignalStudy() {
   const cached = getRun(CACHE_KEY);
+  const common = getCommon();
+  const initPv = common.pv_mw ?? cached.params?.pv_mw ?? DEFAULT_PARAMS.pv_mw;
+  const initScale = common.scale_loads ?? cached.params?.scale_loads ?? DEFAULT_PARAMS.scale_loads;
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(cached.selected ?? null);
-  const [params, setParams] = useState<RunParams>(cached.params ?? DEFAULT_PARAMS);
-  const [scenario, setScenario] = useState<string>(cached.scenario ?? "");
+  const [selected, setSelected] = useState<string | null>(common.selected ?? cached.selected ?? null);
+  const [params, setParams] = useState<RunParams>({
+    ...(cached.params ?? DEFAULT_PARAMS), pv_mw: initPv, scale_loads: initScale, ...deriveBess(initPv, "arbitrage"),
+  });
+  const [scenario, setScenario] = useState<string>(common.scenario ?? cached.scenario ?? "");
   const [job, setJob] = useState<RunJob | null>(cached.job ?? null);
   const [result, setResult] = useState<any | null>(cached.result ?? null);
   const [err, setErr] = useState<string | null>(null);
@@ -47,6 +52,8 @@ export default function SmallSignalStudy() {
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
   useEffect(() => { saveRun(CACHE_KEY, { selected, scenario, params, job, result }); },
     [selected, scenario, params, job, result]);
+  useEffect(() => { saveCommon({ selected, scenario, pv_mw: params.pv_mw, scale_loads: params.scale_loads }); },
+    [selected, scenario, params.pv_mw, params.scale_loads]);
   useEffect(() => {
     if (job && (job.status === "queued" || job.status === "running")) {
       const close = watchRun(job.run_id, (j) => {
@@ -97,7 +104,13 @@ export default function SmallSignalStudy() {
                 ))}
               </div>
             )}
-            <div style={{ marginTop: 10 }}><GridMap selected={selected} onSelect={setSelected} /></div>
+            <div style={{ marginTop: 10 }}><GridMap selected={selected} onSelect={setSelected} variation={result?.substation_variation} /></div>
+            {result?.substation_variation?.values && Object.keys(result.substation_variation.values).length > 0 && (
+              <p className="phase" style={{ marginTop: 6 }}>
+                Mapa: mayor variación del <b>ángulo del rotor</b> durante la perturbación por subestación
+                (verde = poca, rojo = mucha).
+              </p>
+            )}
           </div>
         </div>
         <div>

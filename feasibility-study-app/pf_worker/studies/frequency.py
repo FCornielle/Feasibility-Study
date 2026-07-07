@@ -96,21 +96,46 @@ def run(app, sub_name, pv_mw, bess_mw=0.0, bess_mwh=0.0, bess_mode="discharge", 
 
         mon = [(ref, "s:xspeed")] + [(g, "s:xspeed") for g in speed_gens]
 
-        def _capture(tstop):
-            inc, sim, res = dynamics.rms_prepare(app, mon)
+        # Para el MAPA (punto 9): variación de la VELOCIDAD de TODOS los síncronos por subestación.
+        all_syncs = [s for s in app.GetCalcRelevantObjects("*.ElmSym") if s.GetAttribute("outserv") == 0]
+
+        def _capture(tstop, power_units=None, map_units=None):
+            # power_units: lista de (obj, etiqueta) cuya POTENCIA ACTIVA (m:P:bus1) se registra además
+            # (p.ej. el BESS de regulación). Los síncronos graficados registran su P para ver la
+            # REGULACIÓN PRIMARIA (los gobernadores suben potencia al caer la frecuencia).
+            pu = power_units or []
+            mu = map_units or []
+            mon2 = (list(mon) + [(g, "m:P:bus1") for g in speed_gens] + [(o, "m:P:bus1") for o, _ in pu]
+                    + [(g, "s:xspeed") for g in mu])
+            inc, sim, res = dynamics.rms_prepare(app, mon2)
             dynamics.rms_run(app, inc, sim, tstop=tstop, dt=DT)
             t, sp = dynamics.series(app, res, ref, "s:xspeed")
             freq = [s * dynamics.FN for s in sp]
             tx, fx = dynamics.downsample(t, freq)
             speeds = {"x_label": "t [s]", "x": tx, "traces": []}
+            gen_power = {"x_label": "t [s]", "x": tx, "traces": []}
             for g in speed_gens:
                 tt, ss = dynamics.series(app, res, g, "s:xspeed")
                 if ss:
                     _, yx = dynamics.downsample(tt, ss)
                     speeds["traces"].append({"name": g.loc_name, "y": yx})
+                tp, pp = dynamics.series(app, res, g, "m:P:bus1")
+                if pp:
+                    _, py = dynamics.downsample(tp, pp)
+                    gen_power["traces"].append({"name": g.loc_name, "y": py})
+            bess_power = {"x_label": "t [s]", "x": tx, "traces": []}
+            for o, lbl in pu:
+                tp, pp = dynamics.series(app, res, o, "m:P:bus1")
+                if pp:
+                    _, py = dynamics.downsample(tp, pp)
+                    bess_power["traces"].append({"name": lbl, "y": py})
+            variation = dynamics.substation_variation(app, res, mu, "s:xspeed") if mu else {}
             return {
                 "frequency": {"x_label": "t [s]", "x": tx, "traces": [{"name": "Frecuencia [Hz]", "y": fx}]},
                 "speeds": speeds,
+                "gen_power": gen_power,
+                "bess_power": bess_power,
+                "variation": variation,
                 "nadir_hz": round(dynamics.nadir(freq), 3) if freq else None,
                 "peak_hz": round(dynamics.peak(freq), 3) if freq else None,
                 "rocof_hz_s": round(dynamics.max_rocof(t, freq), 3) if freq else None,
@@ -141,11 +166,19 @@ def run(app, sub_name, pv_mw, bess_mw=0.0, bess_mwh=0.0, bess_mode="discharge", 
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga con planta no convergió.")
         report("RMS con planta (disparo de la unidad a 500 ms)", 75)
-        con = _capture(TSTOP)
+        # Registra la POTENCIA ACTIVA del BESS de regulación (respuesta dedicada a la frecuencia).
+        bess_units = [(plant["bess"], "BESS de regulación de frecuencia")] if plant.get("bess") is not None else []
+        con = _capture(TSTOP, power_units=bess_units, map_units=all_syncs)
 
     report("evaluando frecuencia", 92)
     data["frequency"] = {"sin_planta": sin["frequency"], "con_planta": con["frequency"]}
     data["speeds"] = {"sin_planta": sin["speeds"], "con_planta": con["speeds"]}
+    # Potencia activa: síncronos (regulación primaria: suben P al caer la frecuencia) y BESS de regulación.
+    data["gen_power"] = {"sin_planta": sin["gen_power"], "con_planta": con["gen_power"]}
+    data["bess_power"] = con["bess_power"]
+    # Mapa (punto 9): variación máx de la velocidad del generador por subestación, escala de color.
+    data["substation_variation"] = dynamics.pack_variation(
+        con.get("variation") or {}, "Máx variación de velocidad", "pu")
     data["metrics"] = {
         "nadir_sin_hz": sin["nadir_hz"], "nadir_con_hz": con["nadir_hz"],
         "rocof_sin_hz_s": sin["rocof_hz_s"], "rocof_con_hz_s": con["rocof_hz_s"],

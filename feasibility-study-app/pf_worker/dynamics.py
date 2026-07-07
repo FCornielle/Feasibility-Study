@@ -85,6 +85,52 @@ def series(app, res, obj, var):
     return t, y
 
 
+def substation_of(obj):
+    """Nombre de la subestación de un generador (vía bus1→terminal) o de un terminal (vía cpSubstat)."""
+    try:
+        term = obj
+        if obj.GetClassName() in ("ElmSym", "ElmGenstat", "ElmAsm", "ElmPvsys"):
+            cub = obj.GetAttribute("bus1")
+            term = cub.GetAttribute("cterm") if cub is not None else None
+        if term is None:
+            return None
+        ss = term.GetAttribute("cpSubstat")
+        return ss.loc_name if ss is not None else None
+    except Exception:
+        return None
+
+
+def substation_variation(app, res, objs, var):
+    """Variación pico-a-pico máx de `var` por SUBESTACIÓN durante el evento (para el heatmap del mapa).
+
+    Recorre cada objeto monitoreado (generador o barra), toma max(y)-min(y) de su serie y se queda con la
+    MAYOR por subestación. Devuelve {sub_name: variacion}. Para ángulos = mayor excursión del rotor; para
+    velocidad = mayor excursión de la velocidad; para tensión = profundidad del hueco."""
+    by = {}
+    for o in objs:
+        t, y = series(app, res, o, var)
+        if not y or len(y) < 2:
+            continue
+        v = max(y) - min(y)
+        s = substation_of(o)
+        if s is None:
+            continue
+        if s not in by or v > by[s]:
+            by[s] = v
+    return by
+
+
+def pack_variation(values, label="", unit=""):
+    """Empaqueta {sub: var} con su min/max para el heatmap del mapa (escala de color máx→mín)."""
+    vals = [v for v in values.values() if v is not None]
+    return {
+        "values": {k: round(v, 5) for k, v in values.items() if v is not None},
+        "min": round(min(vals), 5) if vals else None,
+        "max": round(max(vals), 5) if vals else None,
+        "label": label, "unit": unit,
+    }
+
+
 def add_event(sb, app, cls: str, name: str, time: float, target=None, **attrs):
     """Crea un evento en IntEvt vía el sandbox (rastreado y borrado en el teardown)."""
     evtf = app.GetFromStudyCase("IntEvt")

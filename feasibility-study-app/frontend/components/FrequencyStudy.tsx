@@ -8,7 +8,7 @@ import ComplianceTable from "@/components/ComplianceTable";
 import { SpeedChart } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
 import { HOURS } from "@/lib/tabs";
-import { getRun, saveRun } from "@/lib/runStore";
+import { getRun, saveRun, getCommon, saveCommon } from "@/lib/runStore";
 
 const CACHE_KEY = "frequency";
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
@@ -16,11 +16,16 @@ const DEFAULT_PARAMS: RunParams = { pv_mw: 50, bess_mw: 5, bess_mwh: 2.5, bess_m
 
 export default function FrequencyStudy() {
   const cached = getRun(CACHE_KEY);
+  const common = getCommon();
+  const initPv = common.pv_mw ?? cached.params?.pv_mw ?? DEFAULT_PARAMS.pv_mw;
+  const initScale = common.scale_loads ?? cached.params?.scale_loads ?? DEFAULT_PARAMS.scale_loads;
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(cached.selected ?? null);
-  const [params, setParams] = useState<RunParams>(cached.params ?? DEFAULT_PARAMS);
-  const [scenario, setScenario] = useState<string>(cached.scenario ?? "");
+  const [selected, setSelected] = useState<string | null>(common.selected ?? cached.selected ?? null);
+  const [params, setParams] = useState<RunParams>({
+    ...(cached.params ?? DEFAULT_PARAMS), pv_mw: initPv, scale_loads: initScale, ...deriveBess(initPv, "frequency"),
+  });
+  const [scenario, setScenario] = useState<string>(common.scenario ?? cached.scenario ?? "");
   const [job, setJob] = useState<RunJob | null>(cached.job ?? null);
   const [result, setResult] = useState<any | null>(cached.result ?? null);
   const [err, setErr] = useState<string | null>(null);
@@ -28,6 +33,8 @@ export default function FrequencyStudy() {
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
   useEffect(() => { saveRun(CACHE_KEY, { selected, scenario, params, job, result }); },
     [selected, scenario, params, job, result]);
+  useEffect(() => { saveCommon({ selected, scenario, pv_mw: params.pv_mw, scale_loads: params.scale_loads }); },
+    [selected, scenario, params.pv_mw, params.scale_loads]);
   useEffect(() => {
     if (job && (job.status === "queued" || job.status === "running")) {
       const close = watchRun(job.run_id, (j) => {
@@ -89,7 +96,13 @@ export default function FrequencyStudy() {
                 ))}
               </div>
             )}
-            <div style={{ marginTop: 10 }}><GridMap selected={selected} onSelect={setSelected} /></div>
+            <div style={{ marginTop: 10 }}><GridMap selected={selected} onSelect={setSelected} variation={result?.substation_variation} /></div>
+            {result?.substation_variation?.values && Object.keys(result.substation_variation.values).length > 0 && (
+              <p className="phase" style={{ marginTop: 6 }}>
+                Mapa: mayor variación de la <b>velocidad del generador</b> durante el evento por subestación
+                (verde = poca, rojo = mucha).
+              </p>
+            )}
           </div>
         </div>
         <div>
@@ -147,10 +160,15 @@ export default function FrequencyStudy() {
 
           {result.baseline && (
             <div className="card">
-              <h3>Frecuencia y velocidad en régimen (sin eventos)</h3>
+              <h3>Frecuencia y velocidad al inicializar el RMS (sin eventos)</h3>
               <p className="phase" style={{ marginTop: -4, marginBottom: 10 }}>
-                Estado estable del sistema ANTES de cualquier evento: la frecuencia se mantiene cerca de 60 Hz y
-                las velocidades de los rotores cerca de 1 pu.
+                Corrida SIN ningún evento. La pequeña excursión inicial (~0.1–0.15 Hz que se recupera) NO es una
+                perturbación real: es el <b>transitorio de inicialización del RMS</b>. El punto de operación viene
+                de un flujo de carga (el escenario horario), donde la máquina de referencia (slack) cierra el
+                balance; al arrancar la dinámica, los gobernadores redistribuyen esa potencia y el sistema se
+                asienta con una leve oscilación de frecuencia. Es inherente al modelo, no un evento. En la
+                comparación de abajo la frecuencia se muestra en Hz absolutos (necesario para el criterio de
+                nadir); la deriva de arranque es pequeña frente al hundimiento por el disparo (~0.24 Hz).
               </p>
               <div className="grid2">
                 <div>
@@ -191,6 +209,34 @@ export default function FrequencyStudy() {
               monitoreados: {(result.monitored_gens ?? []).join(", ")}.
             </p>
           </div>
+
+          {/* Respuesta de POTENCIA ACTIVA: BESS de regulación + síncronos en regulación primaria (punto 10) */}
+          {(result.bess_power?.traces?.length > 0 || result.gen_power?.con_planta?.traces?.length > 0) && (
+            <div className="card">
+              <h3>Respuesta de potencia activa a la caída de frecuencia</h3>
+              <p className="phase" style={{ marginTop: -4, marginBottom: 10 }}>
+                Al disparar la unidad, los generadores síncronos suben su potencia por acción de sus gobernadores
+                (<b>regulación primaria</b>) para restaurar el balance generación–demanda; esa es la respuesta que
+                arresta el hundimiento de frecuencia. El BESS de regulación mantiene su despacho de potencia activa
+                (su modelo de inversor controla P por referencia); su aporte principal a la frecuencia es rápido y
+                de pequeña magnitud frente a la flota síncrona (nadir con planta ≥ sin planta).
+              </p>
+              <div className="grid2">
+                {result.bess_power?.traces?.length > 0 && (
+                  <div>
+                    <h4 style={{ margin: "0 0 6px", color: "var(--accent)" }}>BESS de regulación de frecuencia</h4>
+                    <SpeedChart series={result.bess_power} title="Potencia activa del BESS" yLabel="P [MW]" />
+                  </div>
+                )}
+                {result.gen_power?.con_planta?.traces?.length > 0 && (
+                  <div>
+                    <h4 style={{ margin: "0 0 6px", color: "var(--warn)" }}>Síncronos — regulación primaria (CON planta)</h4>
+                    <SpeedChart series={result.gen_power.con_planta} title="Potencia activa de los síncronos" yLabel="P [MW]" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
     </>

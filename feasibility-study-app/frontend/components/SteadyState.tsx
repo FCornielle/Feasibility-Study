@@ -11,7 +11,7 @@ import ComplianceTable from "@/components/ComplianceTable";
 import { VoltageRadar } from "@/components/Charts";
 import RunProgress from "@/components/RunProgress";
 import { ContingencyTable, DispatchPanel, NeighborTable, ShortCircuitSection, SystemPanel } from "@/components/SteadyPanels";
-import { getRun, saveRun } from "@/lib/runStore";
+import { getRun, saveRun, getCommon, saveCommon } from "@/lib/runStore";
 
 const CACHE_KEY = "steady";
 const GridMap = dynamic(() => import("@/components/GridMap"), { ssr: false });
@@ -24,11 +24,16 @@ const HOURS = Array.from({ length: 24 }, (_, i) => {
 
 export default function SteadyState() {
   const cached = getRun(CACHE_KEY);
+  const common = getCommon();
+  const initPv = common.pv_mw ?? cached.params?.pv_mw ?? DEFAULT_PARAMS.pv_mw;
+  const initScale = common.scale_loads ?? cached.params?.scale_loads ?? DEFAULT_PARAMS.scale_loads;
   const [subs, setSubs] = useState<Substation[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(cached.selected ?? null);
-  const [params, setParams] = useState<RunParams>(cached.params ?? DEFAULT_PARAMS);
-  const [scenario, setScenario] = useState<string>(cached.scenario ?? ""); // "" = escenario activo
+  const [selected, setSelected] = useState<string | null>(common.selected ?? cached.selected ?? null);
+  const [params, setParams] = useState<RunParams>({
+    ...(cached.params ?? DEFAULT_PARAMS), pv_mw: initPv, scale_loads: initScale, ...deriveBess(initPv, "arbitrage"),
+  });
+  const [scenario, setScenario] = useState<string>(common.scenario ?? cached.scenario ?? ""); // "" = escenario activo
   const [job, setJob] = useState<RunJob | null>(cached.job ?? null);
   const [result, setResult] = useState<any | null>(cached.result ?? null);
   const [err, setErr] = useState<string | null>(null);
@@ -36,6 +41,8 @@ export default function SteadyState() {
   useEffect(() => { getSubstations().then(setSubs).catch((e) => setErr(String(e))); }, []);
   useEffect(() => { saveRun(CACHE_KEY, { selected, scenario, params, job, result }); },
     [selected, scenario, params, job, result]);
+  useEffect(() => { saveCommon({ selected, scenario, pv_mw: params.pv_mw, scale_loads: params.scale_loads }); },
+    [selected, scenario, params.pv_mw, params.scale_loads]);
   useEffect(() => {
     if (job && (job.status === "queued" || job.status === "running")) {
       const close = watchRun(job.run_id, (j) => {

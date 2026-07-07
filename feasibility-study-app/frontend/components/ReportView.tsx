@@ -260,7 +260,14 @@ export default function ReportView({ result }: { result: any }) {
       <div className="card">
         <h3>Ubicación y red — subestación {result.substation}
           {result.pcc && <> · PCC {result.pcc.name} ({result.pcc.kv} kV)</>}</h3>
-        <div style={{ height: 380 }}><GridMap selected={result.substation} onSelect={() => {}} /></div>
+        <div style={{ height: 380 }}>
+          <GridMap selected={result.substation} onSelect={() => {}}
+            voltages={result.studies?.steady_state?.substation_voltages} />
+        </div>
+        <p className="phase" style={{ marginTop: 6 }}>
+          Mapa de tensiones del flujo de carga con la planta (escala de color). Cada pestaña de estudio muestra,
+          además, la variación máxima (ángulo/velocidad/tensión) por subestación durante su evento.
+        </p>
       </div>
 
       {REPORT_ORDER.map((k) =>
