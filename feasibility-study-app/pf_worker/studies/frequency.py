@@ -71,6 +71,9 @@ def run(app, sub_name, pv_mw, bess_mw=0.0, bess_mwh=0.0, bess_mode="discharge", 
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
         data["load_scaling"] = pv_bess.scale_loads(sb, app, scale_loads)
+        # Reparte el balance (pérdidas) según control primario para que el flujo = equilibrio dinámico
+        # (evita que el slack suelte su sobrecarga al iniciar el RMS -> sin deriva de frecuencia).
+        dynamics.use_primary_control_balancing(app)
         report("flujo de carga base", 8)
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga base no convergió.")

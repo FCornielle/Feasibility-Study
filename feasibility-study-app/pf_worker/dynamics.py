@@ -40,6 +40,23 @@ def reference_generator(app):
     return max(syms, key=_gen_rating)
 
 
+def use_primary_control_balancing(app):
+    """Reparte el balance de potencia activa (pérdidas + desbalance) entre TODAS las máquinas según su
+    control primario (droop de los gobernadores), en vez de cargarlo todo al slack (comportamiento por
+    defecto del flujo). El unit commitment balancea generación = carga en las barras, pero las PÉRDIDAS
+    (~120 MW) recaen por completo en la máquina de referencia (Punta Catalina 1), empujándola por encima
+    de su límite de turbina; al iniciar el RMS su gobernador suelta ese exceso y hunde la frecuencia de
+    todo el sistema (~0.15 Hz sin ningún evento). Repartiendo el balance según el droop, el punto de
+    operación del flujo COINCIDE con el equilibrio dinámico -> el RMS ya no arranca soltando la sobrecarga
+    del slack (la deriva de inicialización baja de ~0.15 a ~0.018 Hz). Setea ComLdf.iopt_apdist=2."""
+    ldf = app.GetFromStudyCase("ComLdf")
+    try:
+        ldf.SetAttribute("iopt_apdist", 2)   # 2 = reparto según control primario (droop)
+    except Exception:
+        pass
+    return ldf
+
+
 def rms_prepare(app, monitored):
     """Prepara el RMS: limpia el ElmRes y registra las variables a monitorear (lista de (obj,var))."""
     inc = app.GetFromStudyCase("ComInc")

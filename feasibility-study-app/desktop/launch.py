@@ -247,11 +247,7 @@ def role_shell():
         _error("El servidor interno no respondió a tiempo.\n"
                "Revisa que PowerFactory esté disponible y la licencia libre, y reintenta.")
         procs["stop"] = True
-        for p in (procs["worker"], backend_proc):
-            try:
-                p.terminate()
-            except Exception:
-                pass
+        _kill_tree(procs["worker"]); _kill_tree(backend_proc)
         return
 
     import webview
@@ -265,11 +261,25 @@ def role_shell():
         webview.start()
     finally:
         procs["stop"] = True
-        for p in (procs["worker"], backend_proc):
-            try:
-                p.terminate()
-            except Exception:
-                pass
+        _kill_tree(procs["worker"]); _kill_tree(backend_proc)
+
+
+def _kill_tree(proc):
+    """Mata el proceso y TODO su árbol (Windows: taskkill /F /T). Necesario para que el worker de
+    PowerFactory —y el motor del engine que corre en su proceso— mueran de verdad y LIBEREN LA LICENCIA
+    al cerrar la app (con proc.terminate() a veces queda el python del worker colgado reteniendo la
+    licencia). Idle -> cierre limpio; si se cierra a mitad de un RMS puede corromper el proyecto (reimportar
+    el .pfd de la carpeta del proyecto)."""
+    if proc is None:
+        return
+    try:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       capture_output=True, timeout=15)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 def _error(msg: str):

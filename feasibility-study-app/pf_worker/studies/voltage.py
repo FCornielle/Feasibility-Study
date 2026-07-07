@@ -86,6 +86,7 @@ def run(app, sub_name, pv_mw, bess_mw, bess_mwh, bess_mode="discharge", scale_lo
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
         data["load_scaling"] = pv_bess.scale_loads(sb, app, scale_loads)
+        dynamics.use_primary_control_balancing(app)   # flujo = equilibrio dinámico (sin deriva de init)
         report("flujo de carga base", 5)
         if app.GetFromStudyCase("ComLdf").Execute() != 0:
             raise RuntimeError("Flujo de carga base no convergió.")
