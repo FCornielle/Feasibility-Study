@@ -162,12 +162,13 @@ export default function FrequencyStudy() {
             <div className="card">
               <h3>Frecuencia y velocidad al inicializar el RMS (sin eventos)</h3>
               <p className="phase" style={{ marginTop: -4, marginBottom: 10 }}>
-                Corrida SIN ningún evento: el sistema se mantiene prácticamente plano en 60 Hz. El flujo de carga
-                reparte el balance (las pérdidas del sistema, ~120 MW) entre TODAS las máquinas según su control
-                primario (droop), en vez de cargarlo todo a la máquina de referencia (Punta Catalina 1). Así el
-                punto de operación coincide con el equilibrio dinámico y el RMS no arranca con la deriva de
-                inicialización que aparecía antes (la referencia soltaba su sobrecarga y hundía la frecuencia
-                ~0.15 Hz). Cualquier variación restante (&lt; 0.02 Hz) es numérica y despreciable.
+                Corrida SIN ningún evento. La pequeña excursión inicial (que se recupera) NO es una perturbación
+                real: es el <b>transitorio de inicialización del RMS</b>. El punto de operación viene del flujo de
+                carga del escenario, donde la máquina de referencia (Punta Catalina) cierra el balance del sistema
+                (cubre las pérdidas); al arrancar la dinámica los gobernadores reparten esa potencia y el sistema
+                se asienta con una leve oscilación de frecuencia. Es inherente al punto de operación (no se modifica
+                el despacho). En la comparación de abajo la frecuencia se muestra en Hz absolutos (necesario para el
+                criterio de nadir).
               </p>
               <div className="grid2">
                 <div>

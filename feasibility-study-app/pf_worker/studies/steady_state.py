@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 
 import connect  # noqa: E402
 import criteria  # noqa: E402
-import dynamics  # noqa: E402
 import export  # noqa: E402
 import pv_bess  # noqa: E402
 from sandbox import PFRunSandbox  # noqa: E402
@@ -498,10 +497,6 @@ def run(app, sub_name: str, pv_mw: float, bess_mw: float, bess_mwh: float,
     with PFRunSandbox(app, run_id=run_id) as sb:
         sub = pv_bess.find_substation(app, sub_name)
         data["load_scaling"] = pv_bess.scale_loads(sb, app, scale_loads)
-        # Mismas condiciones de despacho/flujo que los estudios dinámicos: el flujo reparte el balance
-        # (pérdidas) según control primario en vez de cargarlo todo al slack (Punta Catalina). Así el
-        # despacho del steady coincide con el de los RMS y el slack no aparece sobrecargado.
-        dynamics.use_primary_control_balancing(app)
 
         # 1) Caso base (sin planta) — necesario antes de elegir el PCC energizado
         report("flujo de carga base", 10)
